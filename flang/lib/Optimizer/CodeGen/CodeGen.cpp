@@ -360,30 +360,34 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::LogicalResult
-  matchAndRewrite(fir::AllocaOp alloc, OperandTy operands,
+  matchAndRewrite(fir::AllocaOp alloc, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const override {
+    mlir::ValueRange operands = adaptor.getOperands();
     auto loc = alloc.getLoc();
-    auto ity = lowerTy().indexType();
+    mlir::Type ity = lowerTy().indexType();
     unsigned i = 0;
-    auto size = genConstantIndex(loc, ity, rewriter, 1).getResult();
-    auto ty = convertType(alloc.getType());
-    auto resultTy = ty;
+    mlir::Value size = genConstantIndex(loc, ity, rewriter, 1).getResult();
+    mlir::Type ty = convertType(alloc.getType());
+    mlir::Type resultTy = ty;
     if (alloc.hasLenParams()) {
       unsigned end = alloc.numLenParams();
       llvm::SmallVector<mlir::Value> lenParams;
       for (; i < end; ++i)
         lenParams.push_back(operands[i]);
-      auto scalarType = fir::unwrapSequenceType(alloc.getInType());
+      mlir::Type scalarType = fir::unwrapSequenceType(alloc.getInType());
       if (auto chrTy = scalarType.dyn_cast<fir::CharacterType>()) {
-        auto rawCharTy = fir::CharacterType::getUnknownLen(chrTy.getContext(),
-                                                           chrTy.getFKind());
+        fir::CharacterType rawCharTy = fir::CharacterType::getUnknownLen(
+            chrTy.getContext(), chrTy.getFKind());
         ty = mlir::LLVM::LLVMPointerType::get(convertType(rawCharTy));
         assert(end == 1);
         size = integerCast(loc, rewriter, ity, lenParams[0]);
       } else if (auto recTy = scalarType.dyn_cast<fir::RecordType>()) {
-        auto memSizeFn = getDependentTypeMemSizeFn(recTy, alloc, rewriter);
-        auto attr = rewriter.getNamedAttr("callee",
-                                          mlir::SymbolRefAttr::get(memSizeFn));
+        mlir::LLVM::LLVMFuncOp memSizeFn =
+            getDependentTypeMemSizeFn(recTy, alloc, rewriter);
+        if (!memSizeFn)
+          emitError(loc, "did not find allocation function");
+        mlir::NamedAttribute attr = rewriter.getNamedAttr(
+            "callee", mlir::SymbolRefAttr::get(memSizeFn));
         auto call = rewriter.create<mlir::LLVM::CallOp>(
             loc, ity, lenParams, llvm::ArrayRef<mlir::NamedAttribute>{attr});
         size = call.getResult(0);
@@ -395,15 +399,15 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
       }
     }
     if (alloc.hasShapeOperands()) {
-      auto allocEleTy = fir::unwrapRefType(alloc.getType());
+      mlir::Type allocEleTy = fir::unwrapRefType(alloc.getType());
       // Scale the size by constant factors encoded in the array type.
       if (auto seqTy = allocEleTy.dyn_cast<fir::SequenceType>()) {
         fir::SequenceType::Extent constSize = 1;
         for (auto extent : seqTy.getShape())
           if (extent != fir::SequenceType::getUnknownExtent())
             constSize *= extent;
-        auto constVal =
-            genConstantIndex(loc, ity, rewriter, constSize).getResult();
+        mlir::Value constVal{
+            genConstantIndex(loc, ity, rewriter, constSize).getResult()};
         size = rewriter.create<mlir::LLVM::MulOp>(loc, ity, size, constVal);
       }
       unsigned end = operands.size();
