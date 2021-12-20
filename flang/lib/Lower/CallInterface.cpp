@@ -693,8 +693,12 @@ private:
   translateDynamicType(const Fortran::evaluate::DynamicType &dynamicType) {
     Fortran::common::TypeCategory cat = dynamicType.category();
     // DERIVED
-    if (cat == Fortran::common::TypeCategory::Derived)
+    if (cat == Fortran::common::TypeCategory::Derived) {
+      if (dynamicType.IsPolymorphic())
+        TODO(interface.converter.genLocation(),
+             "[translateDynamicType] polymorphic types");
       return getConverter().genType(dynamicType.GetDerivedTypeSpec());
+    }
     // CHARACTER with compile time constant length.
     if (cat == Fortran::common::TypeCategory::Character)
       if (std::optional<std::int64_t> constantLen =
