@@ -61,8 +61,7 @@ getCharacterLiteralCopy(
                     x.u);
 }
 static llvm::Optional<std::tuple<std::string, std::size_t>>
-getCharacterLiteralCopy(
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &x) {
+getCharacterLiteralCopy(const Fortran::lower::SomeExpr &x) {
   if (const auto *e = Fortran::evaluate::UnwrapExpr<
           Fortran::evaluate::Expr<Fortran::evaluate::SomeCharacter>>(x))
     return getCharacterLiteralCopy(*e);
@@ -1063,7 +1062,7 @@ static void lowerExplicitLowerBounds(
   }
   for (const Fortran::semantics::ShapeSpec *spec : box.dynamicBound()) {
     if (auto low = spec->lbound().GetExplicit()) {
-      auto expr = Fortran::semantics::SomeExpr{*low};
+      auto expr = Fortran::lower::SomeExpr{*low};
       mlir::Value lb = builder.createConvert(
           loc, idxTy, genScalarValue(converter, loc, expr, symMap, stmtCtx));
       result.emplace_back(lb);
@@ -1096,7 +1095,7 @@ static void lowerExplicitExtents(Fortran::lower::AbstractConverter &converter,
   }
   for (const auto &spec : llvm::enumerate(box.dynamicBound())) {
     if (auto up = spec.value()->ubound().GetExplicit()) {
-      auto expr = Fortran::semantics::SomeExpr{*up};
+      auto expr = Fortran::lower::SomeExpr{*up};
       mlir::Value ub = builder.createConvert(
           loc, idxTy, genScalarValue(converter, loc, expr, symMap, stmtCtx));
       if (lowerBounds.empty())
@@ -1125,8 +1124,7 @@ lowerExplicitCharLen(Fortran::lower::AbstractConverter &converter,
   mlir::Type lenTy = builder.getCharacterLengthType();
   if (llvm::Optional<int64_t> len = box.getCharLenConst())
     return builder.createIntegerConstant(loc, lenTy, *len);
-  if (llvm::Optional<Fortran::semantics::SomeExpr> lenExpr =
-          box.getCharLenExpr())
+  if (llvm::Optional<Fortran::lower::SomeExpr> lenExpr = box.getCharLenExpr())
     return genScalarValue(converter, loc, *lenExpr, symMap, stmtCtx);
   return mlir::Value{};
 }
@@ -1234,7 +1232,7 @@ void Fortran::lower::mapSymbolAttributes(
       assert(spec->lbound().GetExplicit() &&
              "lbound must be explicit with constant value 1");
       if (auto high = spec->ubound().GetExplicit()) {
-        Fortran::semantics::SomeExpr highEx{*high};
+        Fortran::lower::SomeExpr highEx{*high};
         mlir::Value ub = genValue(highEx);
         shapes.emplace_back(builder.createConvert(loc, idxTy, ub));
       } else if (spec->ubound().isColon()) {
@@ -1269,7 +1267,7 @@ void Fortran::lower::mapSymbolAttributes(
             builder.create<fir::BoxDimsOp>(loc, idxTy, idxTy, idxTy, box, dim);
         extents.emplace_back(dimInfo.getResult(1));
         if (auto low = spec->lbound().GetExplicit()) {
-          auto expr = Fortran::semantics::SomeExpr{*low};
+          auto expr = Fortran::lower::SomeExpr{*low};
           mlir::Value lb = builder.createConvert(loc, idxTy, genValue(expr));
           lbounds.emplace_back(lb);
         } else {
@@ -1278,14 +1276,14 @@ void Fortran::lower::mapSymbolAttributes(
         }
       } else {
         if (auto low = spec->lbound().GetExplicit()) {
-          auto expr = Fortran::semantics::SomeExpr{*low};
+          auto expr = Fortran::lower::SomeExpr{*low};
           lb = builder.createConvert(loc, idxTy, genValue(expr));
         } else {
           TODO(loc, "assumed rank lowering");
         }
 
         if (auto high = spec->ubound().GetExplicit()) {
-          auto expr = Fortran::semantics::SomeExpr{*high};
+          auto expr = Fortran::lower::SomeExpr{*high};
           ub = builder.createConvert(loc, idxTy, genValue(expr));
           lbounds.emplace_back(lb);
           extents.emplace_back(computeExtent(builder, loc, lb, ub));

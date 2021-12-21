@@ -234,8 +234,7 @@ void Fortran::lower::DumpEvaluateExpr::outdent() {
 // Boilerplate entry points that the debugger can find.
 //===----------------------------------------------------------------------===//
 
-void Fortran::lower::dumpEvExpr(
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &x) {
+void Fortran::lower::dumpEvExpr(const Fortran::semantics::SomeExpr &x) {
   DumpEvaluateExpr::dump(x);
 }
 

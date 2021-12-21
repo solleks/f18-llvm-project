@@ -17,6 +17,7 @@
 #ifndef FORTRAN_LOWER_CONVERT_VARIABLE_H
 #define FORTRAN_LOWER_CONVERT_VARIABLE_H
 
+#include "flang/Lower/Support/Utils.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/DenseMap.h"
 #include <cstddef>
@@ -26,16 +27,8 @@ namespace fir {
 class GlobalOp;
 class ExtendedValue;
 } // namespace fir
-namespace Fortran {
-namespace semantics {
-class Scope;
-}
-namespace evaluate {
-template <typename T>
-class Expr;
-struct SomeType;
-} // namespace evaluate
-namespace lower {
+
+namespace Fortran ::lower {
 class AbstractConverter;
 class CallerInterface;
 class StatementContext;
@@ -86,16 +79,14 @@ void mapCallInterfaceSymbols(AbstractConverter &,
 
 /// Create initial-data-target fir.box in a global initializer region.
 /// This handles the local instantiation of the target variable.
-mlir::Value
-genInitialDataTarget(Fortran::lower::AbstractConverter &, mlir::Location,
-                     mlir::Type boxType,
-                     const evaluate::Expr<evaluate::SomeType> &initialTarget);
+mlir::Value genInitialDataTarget(Fortran::lower::AbstractConverter &,
+                                 mlir::Location, mlir::Type boxType,
+                                 const SomeExpr &initialTarget);
 
 /// Generate address \p addr inside an initializer.
 fir::ExtendedValue
 genExtAddrInInitializer(Fortran::lower::AbstractConverter &converter,
-                        mlir::Location loc,
-                        const evaluate::Expr<evaluate::SomeType> &addr);
-} // namespace lower
-} // namespace Fortran
+                        mlir::Location loc, const SomeExpr &addr);
+
+} // namespace Fortran::lower
 #endif // FORTRAN_LOWER_CONVERT_VARIABLE_H

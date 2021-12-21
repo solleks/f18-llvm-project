@@ -29,8 +29,7 @@ public:
                             Fortran::lower::StatementContext &stmtCtx)
       : converter{converter}, stmtCtx{stmtCtx}, loc{loc} {}
 
-  Fortran::lower::VectorSubscriptBox
-  gen(const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr) {
+  Fortran::lower::VectorSubscriptBox gen(const Fortran::lower::SomeExpr &expr) {
     elementType = genDesignator(expr);
     return Fortran::lower::VectorSubscriptBox(
         std::move(loweredBase), std::move(loweredSubscripts),
@@ -159,8 +158,7 @@ private:
   mlir::Type genRankedArrayRefSubscriptAndBase(
       const Fortran::evaluate::ArrayRef &arrayRef) {
     // Lower the save the base
-    Fortran::evaluate::Expr<Fortran::evaluate::SomeType> baseExpr =
-        namedEntityToExpr(arrayRef.base());
+    Fortran::lower::SomeExpr baseExpr = namedEntityToExpr(arrayRef.base());
     loweredBase = converter.genExprAddr(baseExpr, stmtCtx);
     // Lower and save the subscripts
     fir::FirOpBuilder &builder = converter.getFirOpBuilder();
@@ -229,7 +227,7 @@ private:
     return Fortran::evaluate::DataRef{namedEntity.GetComponent()};
   }
 
-  Fortran::evaluate::Expr<Fortran::evaluate::SomeType>
+  Fortran::lower::SomeExpr
   namedEntityToExpr(const Fortran::evaluate::NamedEntity &namedEntity) {
     return Fortran::evaluate::AsGenericExpr(namedEntityToDataRef(namedEntity))
         .value();
@@ -250,7 +248,7 @@ private:
 Fortran::lower::VectorSubscriptBox Fortran::lower::genVectorSubscriptBox(
     mlir::Location loc, Fortran::lower::AbstractConverter &converter,
     Fortran::lower::StatementContext &stmtCtx,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr) {
+    const Fortran::lower::SomeExpr &expr) {
   return VectorSubscriptBoxBuilder(loc, converter, stmtCtx).gen(expr);
 }
 

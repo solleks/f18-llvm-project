@@ -201,7 +201,7 @@ convertOptExtentExpr(Fortran::lower::AbstractConverter &converter,
   mlir::Location loc = converter.getCurrentLocation();
   if (!opt.has_value())
     fir::emitFatalError(loc, "shape analysis failed to return an expression");
-  Fortran::semantics::SomeExpr e = toEvExpr(*opt);
+  Fortran::lower::SomeExpr e = toEvExpr(*opt);
   return fir::getBase(converter.genExprValue(&e, stmtCtx, loc));
 }
 
@@ -685,7 +685,7 @@ public:
 
     for (const auto &value : ctor.values()) {
       const Fortran::semantics::Symbol &sym = *value.first;
-      const Fortran::semantics::SomeExpr &expr = value.second.value();
+      const Fortran::lower::SomeExpr &expr = value.second.value();
       // Parent components need more work because they do not appear in the
       // fir.rec type.
       if (sym.test(Fortran::semantics::Symbol::Flag::ParentComp))
@@ -1748,8 +1748,7 @@ public:
     for (const auto &[arg, dummy] :
          llvm::zip(procRef.arguments(),
                    intrinsic.characteristics.value().dummyArguments)) {
-      auto *expr = Fortran::evaluate::UnwrapExpr<
-          Fortran::evaluate::Expr<Fortran::evaluate::SomeType>>(arg);
+      auto *expr = Fortran::evaluate::UnwrapExpr<Fortran::lower::SomeExpr>(arg);
       if (!expr) {
         // Absent optional.
         operands.emplace_back(Fortran::lower::getAbsentIntrinsicArgument());
@@ -2934,8 +2933,7 @@ public:
   static void lowerAnyMaskedArrayAssignment(
       Fortran::lower::AbstractConverter &converter,
       Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &rhs,
+      const Fortran::lower::SomeExpr &lhs, const Fortran::lower::SomeExpr &rhs,
       Fortran::lower::ExplicitIterSpace &explicitSpace,
       Fortran::lower::ImplicitIterSpace &implicitSpace) {
     if (explicitSpace.isActive() && lhs.Rank() == 0) {
@@ -2961,8 +2959,7 @@ public:
   static void lowerAllocatableArrayAssignment(
       Fortran::lower::AbstractConverter &converter,
       Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &rhs,
+      const Fortran::lower::SomeExpr &lhs, const Fortran::lower::SomeExpr &rhs,
       Fortran::lower::ExplicitIterSpace &explicitSpace,
       Fortran::lower::ImplicitIterSpace &implicitSpace) {
     ArrayExprLowering ael(converter, stmtCtx, symMap,
@@ -2976,9 +2973,8 @@ public:
   /// The semantics are reverse that of a "regular" array assignment. The rhs
   /// defines the iteration space of the computation and the lhs is
   /// resized/reallocated to fit if necessary.
-  void lowerAllocatableArrayAssignment(
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &rhs) {
+  void lowerAllocatableArrayAssignment(const Fortran::lower::SomeExpr &lhs,
+                                       const Fortran::lower::SomeExpr &rhs) {
     // With assignment to allocatable, we want to lower the rhs first and use
     // its shape to determine if we need to reallocate, etc.
     mlir::Location loc = getLoc();
@@ -3042,17 +3038,17 @@ public:
 
   /// Entry point for when an array expression appears in a context where the
   /// result must be boxed. (BoxValue semantics.)
-  static ExtValue lowerBoxedArrayExpression(
-      Fortran::lower::AbstractConverter &converter,
-      Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr) {
+  static ExtValue
+  lowerBoxedArrayExpression(Fortran::lower::AbstractConverter &converter,
+                            Fortran::lower::SymMap &symMap,
+                            Fortran::lower::StatementContext &stmtCtx,
+                            const Fortran::lower::SomeExpr &expr) {
     ArrayExprLowering ael{converter, stmtCtx, symMap,
                           ConstituentSemantics::BoxValue};
     return ael.lowerBoxedArrayExpr(expr);
   }
 
-  ExtValue lowerBoxedArrayExpr(
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &exp) {
+  ExtValue lowerBoxedArrayExpr(const Fortran::lower::SomeExpr &exp) {
     return std::visit(
         [&](const auto &e) {
           auto f = genarr(e);
@@ -3098,8 +3094,7 @@ public:
   static void lowerLazyArrayExpression(
       Fortran::lower::AbstractConverter &converter,
       Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-      mlir::Value raggedHeader) {
+      const Fortran::lower::SomeExpr &expr, mlir::Value raggedHeader) {
     ArrayExprLowering ael(converter, stmtCtx, symMap);
     ael.lowerLazyArrayExpression(expr, raggedHeader);
   }
@@ -3107,9 +3102,8 @@ public:
   /// Lower the expression \p expr into a buffer that is created on demand. The
   /// variable containing the pointer to the buffer is \p var and the variable
   /// containing the shape of the buffer is \p shapeBuffer.
-  void lowerLazyArrayExpression(
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-      mlir::Value header) {
+  void lowerLazyArrayExpression(const Fortran::lower::SomeExpr &expr,
+                                mlir::Value header) {
     mlir::Location loc = getLoc();
     mlir::TupleType hdrTy = fir::factory::getRaggedArrayHeaderType(builder);
     mlir::IntegerType i32Ty = builder.getIntegerType(32);
@@ -3190,10 +3184,9 @@ public:
     ael.lowerElementalUserAssignment(func, *lhs, *rhs);
   }
 
-  void lowerElementalUserAssignment(
-      mlir::FuncOp userAssignment,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs,
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &rhs) {
+  void lowerElementalUserAssignment(mlir::FuncOp userAssignment,
+                                    const Fortran::lower::SomeExpr &lhs,
+                                    const Fortran::lower::SomeExpr &rhs) {
     mlir::Location loc = getLoc();
     PushSemantics(ConstituentSemantics::CustomCopyInCopyOut);
     auto genArrayModify = genarr(lhs);
@@ -3338,8 +3331,7 @@ private:
     destShape = fir::factory::getExtents(builder, getLoc(), lhs);
   }
 
-  void determineShapeOfDest(
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs) {
+  void determineShapeOfDest(const Fortran::lower::SomeExpr &lhs) {
     if (!destShape.empty())
       return;
     if (explicitSpaceIsActive() && determineShapeWithSlice(lhs))
@@ -3412,8 +3404,7 @@ private:
   /// When in an explicit space, the ranked component must be evaluated to
   /// determine the actual number of iterations when slicing triples are
   /// present. Lower these expressions here.
-  bool determineShapeWithSlice(
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs) {
+  bool determineShapeWithSlice(const Fortran::lower::SomeExpr &lhs) {
     LLVM_DEBUG(Fortran::lower::DumpEvaluateExpr::dump(
         llvm::dbgs() << "determine shape of:\n", lhs));
     // FIXME: We may not want to use ExtractDataRef here since it doesn't deal
@@ -3452,8 +3443,7 @@ private:
     return adjustedArrayElementType(pathTy);
   }
 
-  ExtValue lowerArrayExpression(
-      const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &exp) {
+  ExtValue lowerArrayExpression(const Fortran::lower::SomeExpr &exp) {
     mlir::Type resTy = converter.genType(exp);
     return std::visit(
         [&](const auto &e) { return lowerArrayExpression(genarr(e), resTy); },
@@ -4030,8 +4020,8 @@ private:
     for (const auto &[arg, dummy] :
          llvm::zip(procRef.arguments(),
                    intrinsic.characteristics.value().dummyArguments)) {
-      const auto *expr = Fortran::evaluate::UnwrapExpr<
-          Fortran::evaluate::Expr<Fortran::evaluate::SomeType>>(arg);
+      const auto *expr =
+          Fortran::evaluate::UnwrapExpr<Fortran::lower::SomeExpr>(arg);
       if (!expr) {
         // Absent optional.
         operands.emplace_back([=](IterSpace) { return mlir::Value{}; });
@@ -4584,21 +4574,20 @@ private:
   // Get rid of it here so the vector can be loaded. Add it back when
   // generating the elemental evaluation (inside the loop nest).
 
-  static Fortran::evaluate::Expr<Fortran::evaluate::SomeType>
+  static Fortran::lower::SomeExpr
   ignoreEvConvert(const Fortran::evaluate::Expr<Fortran::evaluate::Type<
                       Fortran::common::TypeCategory::Integer, 8>> &x) {
     return std::visit([&](const auto &v) { return ignoreEvConvert(v); }, x.u);
   }
   template <Fortran::common::TypeCategory FROM>
-  static Fortran::evaluate::Expr<Fortran::evaluate::SomeType> ignoreEvConvert(
+  static Fortran::lower::SomeExpr ignoreEvConvert(
       const Fortran::evaluate::Convert<
           Fortran::evaluate::Type<Fortran::common::TypeCategory::Integer, 8>,
           FROM> &x) {
     return toEvExpr(x.left());
   }
   template <typename A>
-  static Fortran::evaluate::Expr<Fortran::evaluate::SomeType>
-  ignoreEvConvert(const A &x) {
+  static Fortran::lower::SomeExpr ignoreEvConvert(const A &x) {
     return toEvExpr(x);
   }
 
@@ -6206,8 +6195,8 @@ private:
 
 fir::ExtendedValue Fortran::lower::createSomeExtendedExpression(
     mlir::Location loc, Fortran::lower::AbstractConverter &converter,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx) {
+    const Fortran::lower::SomeExpr &expr, Fortran::lower::SymMap &symMap,
+    Fortran::lower::StatementContext &stmtCtx) {
   LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "expr: ") << '\n');
   return ScalarExprLowering{loc, converter, symMap, stmtCtx}.genval(expr);
 }
@@ -6215,7 +6204,7 @@ fir::ExtendedValue Fortran::lower::createSomeExtendedExpression(
 fir::GlobalOp Fortran::lower::createDenseGlobal(
     mlir::Location loc, mlir::Type symTy, llvm::StringRef globalName,
     mlir::StringAttr linkage, bool isConst,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
+    const Fortran::lower::SomeExpr &expr,
     Fortran::lower::AbstractConverter &converter) {
 
   Fortran::lower::StatementContext stmtCtx(/*prohibited=*/true);
@@ -6240,8 +6229,8 @@ fir::GlobalOp Fortran::lower::createDenseGlobal(
 
 fir::ExtendedValue Fortran::lower::createSomeInitializerExpression(
     mlir::Location loc, Fortran::lower::AbstractConverter &converter,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx) {
+    const Fortran::lower::SomeExpr &expr, Fortran::lower::SymMap &symMap,
+    Fortran::lower::StatementContext &stmtCtx) {
   LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "expr: ") << '\n');
   InitializerData initData; // needed for initializations
   return ScalarExprLowering{loc, converter, symMap, stmtCtx,
@@ -6251,16 +6240,15 @@ fir::ExtendedValue Fortran::lower::createSomeInitializerExpression(
 
 fir::ExtendedValue Fortran::lower::createSomeExtendedAddress(
     mlir::Location loc, Fortran::lower::AbstractConverter &converter,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx) {
+    const Fortran::lower::SomeExpr &expr, Fortran::lower::SymMap &symMap,
+    Fortran::lower::StatementContext &stmtCtx) {
   LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "address: ") << '\n');
   return ScalarExprLowering{loc, converter, symMap, stmtCtx}.gen(expr);
 }
 
 void Fortran::lower::createSomeArrayAssignment(
     Fortran::lower::AbstractConverter &converter,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &rhs,
+    const Fortran::lower::SomeExpr &lhs, const Fortran::lower::SomeExpr &rhs,
     Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx) {
   LLVM_DEBUG(lhs.AsFortran(llvm::dbgs() << "onto array: ") << '\n';
              rhs.AsFortran(llvm::dbgs() << "assign expression: ") << '\n';);
@@ -6269,8 +6257,8 @@ void Fortran::lower::createSomeArrayAssignment(
 
 void Fortran::lower::createSomeArrayAssignment(
     Fortran::lower::AbstractConverter &converter, const fir::ExtendedValue &lhs,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &rhs,
-    Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx) {
+    const Fortran::lower::SomeExpr &rhs, Fortran::lower::SymMap &symMap,
+    Fortran::lower::StatementContext &stmtCtx) {
   LLVM_DEBUG(llvm::dbgs() << "onto array: " << lhs << '\n';
              rhs.AsFortran(llvm::dbgs() << "assign expression: ") << '\n';);
   ArrayExprLowering::lowerArrayAssignment(converter, symMap, stmtCtx, lhs, rhs);
@@ -6286,8 +6274,7 @@ void Fortran::lower::createSomeArrayAssignment(
 
 void Fortran::lower::createAnyMaskedArrayAssignment(
     Fortran::lower::AbstractConverter &converter,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &rhs,
+    const Fortran::lower::SomeExpr &lhs, const Fortran::lower::SomeExpr &rhs,
     Fortran::lower::ExplicitIterSpace &explicitSpace,
     Fortran::lower::ImplicitIterSpace &implicitSpace,
     Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx) {
@@ -6302,8 +6289,7 @@ void Fortran::lower::createAnyMaskedArrayAssignment(
 
 void Fortran::lower::createAllocatableArrayAssignment(
     Fortran::lower::AbstractConverter &converter,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &lhs,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &rhs,
+    const Fortran::lower::SomeExpr &lhs, const Fortran::lower::SomeExpr &rhs,
     Fortran::lower::ExplicitIterSpace &explicitSpace,
     Fortran::lower::ImplicitIterSpace &implicitSpace,
     Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx) {
@@ -6334,10 +6320,11 @@ void Fortran::lower::createLazyArrayTempValue(
                                               raggedHeader);
 }
 
-fir::ExtendedValue Fortran::lower::createSomeArrayBox(
-    Fortran::lower::AbstractConverter &converter,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    Fortran::lower::SymMap &symMap, Fortran::lower::StatementContext &stmtCtx) {
+fir::ExtendedValue
+Fortran::lower::createSomeArrayBox(Fortran::lower::AbstractConverter &converter,
+                                   const Fortran::lower::SomeExpr &expr,
+                                   Fortran::lower::SymMap &symMap,
+                                   Fortran::lower::StatementContext &stmtCtx) {
   LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "box designator: ") << '\n');
   return ArrayExprLowering::lowerBoxedArrayExpression(converter, symMap,
                                                       stmtCtx, expr);
@@ -6345,8 +6332,7 @@ fir::ExtendedValue Fortran::lower::createSomeArrayBox(
 
 fir::MutableBoxValue Fortran::lower::createMutableBox(
     mlir::Location loc, Fortran::lower::AbstractConverter &converter,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    Fortran::lower::SymMap &symMap) {
+    const Fortran::lower::SomeExpr &expr, Fortran::lower::SymMap &symMap) {
   // MutableBox lowering StatementContext does not need to be propagated
   // to the caller because the result value is a variable, not a temporary
   // expression. The StatementContext clean-up can occur before using the
@@ -6394,7 +6380,7 @@ mlir::Value Fortran::lower::createSubroutineCall(
       // arguments must be take into account potential overlap. So far the front
       // end does not add parentheses around the RHS argument in the call as it
       // should according to 15.4.3.4.3 p2.
-      Fortran::semantics::SomeExpr expr{call};
+      Fortran::lower::SomeExpr expr{call};
       Fortran::lower::createSomeExtendedExpression(loc, converter, expr, symMap,
                                                    stmtCtx);
     }
@@ -6405,13 +6391,13 @@ mlir::Value Fortran::lower::createSubroutineCall(
          "subroutine calls are not allowed inside WHERE and FORALL");
 
   if (isElementalProcWithArrayArgs(call)) {
-    Fortran::semantics::SomeExpr expr{call};
+    Fortran::lower::SomeExpr expr{call};
     ArrayExprLowering::lowerElementalSubroutine(converter, symMap, stmtCtx,
                                                 expr);
     return {};
   }
   // Simple subroutine call, with potential alternate return.
-  Fortran::semantics::SomeExpr expr{call};
+  Fortran::lower::SomeExpr expr{call};
   auto res = Fortran::lower::createSomeExtendedExpression(loc, converter, expr,
                                                           symMap, stmtCtx);
   return fir::getBase(res);

@@ -110,8 +110,8 @@ namespace {
 /// specifier variable may be set to a value that indicates some condition,
 /// and an IOMSG specifier variable may be set to a description of a condition.
 struct ConditionSpecInfo {
-  const Fortran::semantics::SomeExpr *ioStatExpr{};
-  const Fortran::semantics::SomeExpr *ioMsgExpr{};
+  const Fortran::lower::SomeExpr *ioStatExpr{};
+  const Fortran::lower::SomeExpr *ioMsgExpr{};
   bool hasErr{};
   bool hasEnd{};
   bool hasEor{};
@@ -742,7 +742,7 @@ static mlir::Value getDefaultScratchLen(fir::FirOpBuilder &builder,
 /// character as long as they are contiguous.
 static std::tuple<mlir::Value, mlir::Value>
 genBuffer(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
-          const Fortran::semantics::SomeExpr &expr, mlir::Type strTy,
+          const Fortran::lower::SomeExpr &expr, mlir::Type strTy,
           mlir::Type lenTy, Fortran::lower::StatementContext &stmtCtx) {
   fir::FirOpBuilder &builder = converter.getFirOpBuilder();
   fir::ExtendedValue exprAddr = converter.genExprAddr(expr, stmtCtx);
@@ -1066,7 +1066,7 @@ static bool hasMem(const A &stmt) {
 
 /// Get the sought expression from the specifier list.
 template <typename SEEK, typename A>
-static const Fortran::semantics::SomeExpr *getExpr(const A &stmt) {
+static const Fortran::lower::SomeExpr *getExpr(const A &stmt) {
   for (const auto &spec : stmt.v)
     if (auto *f = std::get_if<SEEK>(&spec.u))
       return Fortran::semantics::GetExpr(f->v);
@@ -1294,11 +1294,11 @@ constexpr bool isDataTransferNamelist<Fortran::parser::PrintStmt>(
 /// Lowers a format statment that uses an assigned variable label reference as
 /// a select operation to allow for run-time selection of the format statement.
 static std::tuple<mlir::Value, mlir::Value, mlir::Value>
-lowerReferenceAsStringSelect(
-    Fortran::lower::AbstractConverter &converter, mlir::Location loc,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    mlir::Type strTy, mlir::Type lenTy,
-    Fortran::lower::StatementContext &stmtCtx) {
+lowerReferenceAsStringSelect(Fortran::lower::AbstractConverter &converter,
+                             mlir::Location loc,
+                             const Fortran::lower::SomeExpr &expr,
+                             mlir::Type strTy, mlir::Type lenTy,
+                             Fortran::lower::StatementContext &stmtCtx) {
   // Possible optimization TODO: Instead of inlining a selectOp every time there
   // is a variable reference to a format statement, a function with the selectOp
   // could be generated to reduce code size. It is not clear if such an
@@ -1824,7 +1824,7 @@ Fortran::lower::genReadStatement(Fortran::lower::AbstractConverter &converter,
 
 /// Get the file expression from the inquire spec list. Also return if the
 /// expression is a file name.
-static std::pair<const Fortran::semantics::SomeExpr *, bool>
+static std::pair<const Fortran::lower::SomeExpr *, bool>
 getInquireFileExpr(const std::list<Fortran::parser::InquireSpec> *stmt) {
   if (!stmt)
     return {nullptr, /*filename?=*/false};

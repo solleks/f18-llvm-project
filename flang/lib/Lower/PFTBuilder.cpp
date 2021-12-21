@@ -1769,8 +1769,7 @@ struct SymbolVisitor {
     return false;
   }
 
-  void
-  visitExpr(const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr) {
+  void visitExpr(const Fortran::lower::SomeExpr &expr) {
     for (const semantics::Symbol &symbol :
          Fortran::evaluate::CollectSymbols(expr))
       visitSymbol(symbol);

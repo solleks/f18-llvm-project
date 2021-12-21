@@ -23,6 +23,7 @@ namespace fir {
 class KindMapping;
 class FirOpBuilder;
 } // namespace fir
+
 namespace Fortran {
 namespace common {
 template <typename>
