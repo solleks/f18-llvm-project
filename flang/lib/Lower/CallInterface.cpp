@@ -146,7 +146,7 @@ Fortran::lower::CallerInterface::characterize() const {
             Fortran::evaluate::characteristics::AlternateReturn{});
       } else {
         // Argument cannot be optional with implicit interface
-        const Fortran::semantics::SomeExpr *expr = arg.value().UnwrapExpr();
+        const Fortran::lower::SomeExpr *expr = arg.value().UnwrapExpr();
         assert(
             expr &&
             "argument in call with implicit interface cannot be assumed type");

@@ -14,10 +14,9 @@
 #define FORTRAN_LOWER_BOXANALYZER_H
 
 #include "flang/Evaluate/fold.h"
-#include "flang/Evaluate/tools.h"
+#include "flang/Lower/Support/Utils.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Optimizer/Support/Matcher.h"
-#include "flang/Semantics/symbol.h"
 
 namespace Fortran::lower {
 
@@ -72,13 +71,13 @@ private:
 /// Scalar of dependent type CHARACTER, dynamic LEN.
 struct ScalarDynamicChar : ScalarSym {
   ScalarDynamicChar(const Fortran::semantics::Symbol &sym,
-                    const Fortran::semantics::SomeExpr &len)
+                    const Fortran::lower::SomeExpr &len)
       : ScalarSym{sym}, len{len} {}
   ScalarDynamicChar(const Fortran::semantics::Symbol &sym)
       : ScalarSym{sym}, len{FromBox{}} {}
 
-  llvm::Optional<Fortran::semantics::SomeExpr> charLen() const {
-    if (auto *l = std::get_if<Fortran::semantics::SomeExpr>(&len))
+  llvm::Optional<Fortran::lower::SomeExpr> charLen() const {
+    if (auto *l = std::get_if<Fortran::lower::SomeExpr>(&len))
       return {*l};
     return llvm::None;
   }
@@ -87,18 +86,17 @@ struct ScalarDynamicChar : ScalarSym {
   static constexpr bool isChar() { return true; }
 
 private:
-  std::variant<FromBox, Fortran::semantics::SomeExpr> len;
+  std::variant<FromBox, Fortran::lower::SomeExpr> len;
 };
 
 /// Scalar of dependent type Derived, dynamic LEN(s).
 struct ScalarDynamicDerived : ScalarSym {
-  ScalarDynamicDerived(
-      const Fortran::semantics::Symbol &sym,
-      llvm::SmallVectorImpl<Fortran::semantics::SomeExpr> &&lens)
+  ScalarDynamicDerived(const Fortran::semantics::Symbol &sym,
+                       llvm::SmallVectorImpl<Fortran::lower::SomeExpr> &&lens)
       : ScalarSym{sym}, lens{std::move(lens)} {}
 
 private:
-  llvm::SmallVector<Fortran::semantics::SomeExpr> lens;
+  llvm::SmallVector<Fortran::lower::SomeExpr> lens;
 };
 
 struct LBoundsAndShape {
@@ -172,7 +170,7 @@ struct StaticArrayStaticChar : ScalarStaticChar, LBoundsAndShape {
 /// Array of CHARACTER with dynamic LEN but constant origin, shape.
 struct StaticArrayDynamicChar : ScalarDynamicChar, LBoundsAndShape {
   StaticArrayDynamicChar(const Fortran::semantics::Symbol &sym,
-                         const Fortran::semantics::SomeExpr &len,
+                         const Fortran::lower::SomeExpr &len,
                          llvm::SmallVectorImpl<int64_t> &&lbounds,
                          llvm::SmallVectorImpl<int64_t> &&shapes)
       : ScalarDynamicChar{sym, len}, LBoundsAndShape{std::move(lbounds),
@@ -204,7 +202,7 @@ struct DynamicArrayStaticChar : ScalarStaticChar, DynamicBound {
 struct DynamicArrayDynamicChar : ScalarDynamicChar, DynamicBound {
   DynamicArrayDynamicChar(
       const Fortran::semantics::Symbol &sym,
-      const Fortran::semantics::SomeExpr &len,
+      const Fortran::lower::SomeExpr &len,
       llvm::SmallVectorImpl<const Fortran::semantics::ShapeSpec *> &&bounds)
       : ScalarDynamicChar{sym, len}, DynamicBound{std::move(bounds)} {}
   DynamicArrayDynamicChar(
@@ -324,8 +322,8 @@ public:
         [](const auto &) -> A { return llvm::None; });
   }
 
-  llvm::Optional<Fortran::semantics::SomeExpr> getCharLenExpr() const {
-    using A = llvm::Optional<Fortran::semantics::SomeExpr>;
+  llvm::Optional<Fortran::lower::SomeExpr> getCharLenExpr() const {
+    using A = llvm::Optional<Fortran::lower::SomeExpr>;
     return match([](const ScalarDynamicChar &x) { return x.charLen(); },
                  [](const StaticArrayDynamicChar &x) { return x.charLen(); },
                  [](const DynamicArrayDynamicChar &x) { return x.charLen(); },
@@ -469,8 +467,7 @@ private:
   // Get the constant LEN of a CHARACTER, if it exists.
   llvm::Optional<int64_t>
   charLenConstant(const Fortran::semantics::Symbol &sym) {
-    if (llvm::Optional<Fortran::semantics::SomeExpr> expr =
-            charLenVariable(sym))
+    if (llvm::Optional<Fortran::lower::SomeExpr> expr = charLenVariable(sym))
       if (std::optional<int64_t> asInt = Fortran::evaluate::ToInt64(*expr)) {
         // Length is max(0, *asInt) (F2018 7.4.4.2 point 5.).
         if (*asInt < 0)
@@ -481,7 +478,7 @@ private:
   }
 
   // Get the `SomeExpr` that describes the CHARACTER's LEN.
-  llvm::Optional<Fortran::semantics::SomeExpr>
+  llvm::Optional<Fortran::lower::SomeExpr>
   charLenVariable(const Fortran::semantics::Symbol &sym) {
     const Fortran::semantics::ParamValue &lenParam =
         sym.GetType()->characterTypeSpec().length();

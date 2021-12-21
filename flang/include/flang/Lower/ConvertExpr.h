@@ -17,7 +17,7 @@
 #ifndef FORTRAN_LOWER_CONVERTEXPR_H
 #define FORTRAN_LOWER_CONVERTEXPR_H
 
-#include "flang/Evaluate/expression.h"
+#include "flang/Lower/Support/Utils.h"
 #include "flang/Optimizer/Builder/BoxValue.h"
 #include "flang/Optimizer/Builder/FIRBuilder.h"
 
@@ -41,35 +41,36 @@ class StatementContext;
 class SymMap;
 
 /// Create an extended expression value.
-fir::ExtendedValue
-createSomeExtendedExpression(mlir::Location loc, AbstractConverter &converter,
-                             const evaluate::Expr<evaluate::SomeType> &expr,
-                             SymMap &symMap, StatementContext &stmtCtx);
+fir::ExtendedValue createSomeExtendedExpression(mlir::Location loc,
+                                                AbstractConverter &converter,
+                                                const SomeExpr &expr,
+                                                SymMap &symMap,
+                                                StatementContext &stmtCtx);
 
-fir::GlobalOp createDenseGlobal(
-    mlir::Location loc, mlir::Type symTy, llvm::StringRef globalName,
-    mlir::StringAttr linkage, bool isConst,
-    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
-    Fortran::lower::AbstractConverter &converter);
+fir::GlobalOp createDenseGlobal(mlir::Location loc, mlir::Type symTy,
+                                llvm::StringRef globalName,
+                                mlir::StringAttr linkage, bool isConst,
+                                const SomeExpr &expr,
+                                Fortran::lower::AbstractConverter &converter);
 
-fir::ExtendedValue
-createSomeInitializerExpression(mlir::Location loc,
-                                AbstractConverter &converter,
-                                const evaluate::Expr<evaluate::SomeType> &expr,
-                                SymMap &symMap, StatementContext &stmtCtx);
+fir::ExtendedValue createSomeInitializerExpression(mlir::Location loc,
+                                                   AbstractConverter &converter,
+                                                   const SomeExpr &expr,
+                                                   SymMap &symMap,
+                                                   StatementContext &stmtCtx);
 
 /// Create an extended expression address.
-fir::ExtendedValue
-createSomeExtendedAddress(mlir::Location loc, AbstractConverter &converter,
-                          const evaluate::Expr<evaluate::SomeType> &expr,
-                          SymMap &symMap, StatementContext &stmtCtx);
+fir::ExtendedValue createSomeExtendedAddress(mlir::Location loc,
+                                             AbstractConverter &converter,
+                                             const SomeExpr &expr,
+                                             SymMap &symMap,
+                                             StatementContext &stmtCtx);
 
 /// Create the address of the box.
 /// \p expr must be the designator of an allocatable/pointer entity.
-fir::MutableBoxValue
-createMutableBox(mlir::Location loc, AbstractConverter &converter,
-                 const evaluate::Expr<evaluate::SomeType> &expr,
-                 SymMap &symMap);
+fir::MutableBoxValue createMutableBox(mlir::Location loc,
+                                      AbstractConverter &converter,
+                                      const SomeExpr &expr, SymMap &symMap);
 
 /// Lower an array assignment expression.
 ///
@@ -82,8 +83,7 @@ createMutableBox(mlir::Location loc, AbstractConverter &converter,
 /// 4. Copy the resulting array back with ArrayMergeStore to the lhs as
 /// determined per step 1.
 void createSomeArrayAssignment(AbstractConverter &converter,
-                               const evaluate::Expr<evaluate::SomeType> &lhs,
-                               const evaluate::Expr<evaluate::SomeType> &rhs,
+                               const SomeExpr &lhs, const SomeExpr &rhs,
                                SymMap &symMap, StatementContext &stmtCtx);
 
 /// Lower an array assignment expression with a pre-evaluated left hand side.
@@ -96,8 +96,8 @@ void createSomeArrayAssignment(AbstractConverter &converter,
 /// determined per step 1.
 void createSomeArrayAssignment(AbstractConverter &converter,
                                const fir::ExtendedValue &lhs,
-                               const evaluate::Expr<evaluate::SomeType> &rhs,
-                               SymMap &symMap, StatementContext &stmtCtx);
+                               const SomeExpr &rhs, SymMap &symMap,
+                               StatementContext &stmtCtx);
 
 /// Lower an array assignment expression with pre-evaluated left and right
 /// hand sides. This implements an array copy taking into account
@@ -135,26 +135,24 @@ void createSomeArrayAssignment(AbstractConverter &converter,
 /// If the expression has rank, then the assignment has a combined user-defined
 /// iteration space as well as a inner (subordinate) implied iteration
 /// space. The implied iteration space may include WHERE conditions, `masks`.
-void createAnyMaskedArrayAssignment(
-    AbstractConverter &converter, const evaluate::Expr<evaluate::SomeType> &lhs,
-    const evaluate::Expr<evaluate::SomeType> &rhs,
-    ExplicitIterSpace &explicitIterSpace, ImplicitIterSpace &implicitIterSpace,
-    SymMap &symMap, StatementContext &stmtCtx);
+void createAnyMaskedArrayAssignment(AbstractConverter &converter,
+                                    const SomeExpr &lhs, const SomeExpr &rhs,
+                                    ExplicitIterSpace &explicitIterSpace,
+                                    ImplicitIterSpace &implicitIterSpace,
+                                    SymMap &symMap, StatementContext &stmtCtx);
 
 /// In the context of a FORALL, a pointer assignment is allowed. The pointer
 /// assignment can be elementwise on an array of pointers. The bounds
 /// expressions as well as the component path may contain references to the
 /// concurrent control variables. The explicit iteration space must be defined.
 void createAnyArrayPointerAssignment(
-    AbstractConverter &converter, const evaluate::Expr<evaluate::SomeType> &lhs,
-    const evaluate::Expr<evaluate::SomeType> &rhs,
+    AbstractConverter &converter, const SomeExpr &lhs, const SomeExpr &rhs,
     const evaluate::Assignment::BoundsSpec &bounds,
     ExplicitIterSpace &explicitIterSpace, ImplicitIterSpace &implicitIterSpace,
     SymMap &symMap);
 /// Support the bounds remapping flavor of pointer assignment.
 void createAnyArrayPointerAssignment(
-    AbstractConverter &converter, const evaluate::Expr<evaluate::SomeType> &lhs,
-    const evaluate::Expr<evaluate::SomeType> &rhs,
+    AbstractConverter &converter, const SomeExpr &lhs, const SomeExpr &rhs,
     const evaluate::Assignment::BoundsRemapping &bounds,
     ExplicitIterSpace &explicitIterSpace, ImplicitIterSpace &implicitIterSpace,
     SymMap &symMap);
@@ -162,18 +160,19 @@ void createAnyArrayPointerAssignment(
 /// Lower an assignment to an allocatable array, allocating the array if
 /// it is not allocated yet or reallocation it if it does not conform
 /// with the right hand side.
-void createAllocatableArrayAssignment(
-    AbstractConverter &converter, const evaluate::Expr<evaluate::SomeType> &lhs,
-    const evaluate::Expr<evaluate::SomeType> &rhs,
-    ExplicitIterSpace &explicitIterSpace, ImplicitIterSpace &implicitIterSpace,
-    SymMap &symMap, StatementContext &stmtCtx);
+void createAllocatableArrayAssignment(AbstractConverter &converter,
+                                      const SomeExpr &lhs, const SomeExpr &rhs,
+                                      ExplicitIterSpace &explicitIterSpace,
+                                      ImplicitIterSpace &implicitIterSpace,
+                                      SymMap &symMap,
+                                      StatementContext &stmtCtx);
 
 /// Lower an array expression with "parallel" semantics. Such a rhs expression
 /// is fully evaluated prior to being assigned back to a temporary array.
-fir::ExtendedValue
-createSomeArrayTempValue(AbstractConverter &converter,
-                         const evaluate::Expr<evaluate::SomeType> &expr,
-                         SymMap &symMap, StatementContext &stmtCtx);
+fir::ExtendedValue createSomeArrayTempValue(AbstractConverter &converter,
+                                            const SomeExpr &expr,
+                                            SymMap &symMap,
+                                            StatementContext &stmtCtx);
 
 /// Somewhat similar to createSomeArrayTempValue, but the temporary buffer is
 /// allocated lazily (inside the loops instead of before the loops) to
@@ -185,16 +184,14 @@ createSomeArrayTempValue(AbstractConverter &converter,
 /// `{rank, data-is-headers, [data]*, [extents]*}`, which is built recursively.
 /// The base header, \p raggedHeader, must be initialized to zeros.
 void createLazyArrayTempValue(AbstractConverter &converter,
-                              const evaluate::Expr<evaluate::SomeType> &expr,
-                              mlir::Value raggedHeader, SymMap &symMap,
-                              StatementContext &stmtCtx);
+                              const SomeExpr &expr, mlir::Value raggedHeader,
+                              SymMap &symMap, StatementContext &stmtCtx);
 
 /// Lower an array expression to a value of type box. The expression must be a
 /// variable.
-fir::ExtendedValue
-createSomeArrayBox(AbstractConverter &converter,
-                   const evaluate::Expr<evaluate::SomeType> &expr,
-                   SymMap &symMap, StatementContext &stmtCtx);
+fir::ExtendedValue createSomeArrayBox(AbstractConverter &converter,
+                                      const SomeExpr &expr, SymMap &symMap,
+                                      StatementContext &stmtCtx);
 
 /// Lower a subroutine call. This handles both elemental and non elemental
 /// subroutines. \p isUserDefAssignment must be set if this is called in the

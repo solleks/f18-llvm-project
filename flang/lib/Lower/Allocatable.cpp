@@ -219,8 +219,7 @@ static fir::MutableBoxValue
 genMutableBoxValue(Fortran::lower::AbstractConverter &converter,
                    mlir::Location loc,
                    const Fortran::parser::AllocateObject &allocObj) {
-  const Fortran::semantics::SomeExpr *expr =
-      Fortran::semantics::GetExpr(allocObj);
+  const Fortran::lower::SomeExpr *expr = Fortran::semantics::GetExpr(allocObj);
   assert(expr && "semantic analysis failure");
   return converter.genExprMutableBox(loc, *expr);
 }
@@ -438,7 +437,7 @@ private:
           typeSpec->characterTypeSpec().length();
       if (Fortran::semantics::MaybeIntExpr intExpr = lenParam.GetExplicit()) {
         Fortran::lower::StatementContext stmtCtx;
-        Fortran::semantics::SomeExpr lenExpr{*intExpr};
+        Fortran::lower::SomeExpr lenExpr{*intExpr};
         lenParams.push_back(
             fir::getBase(converter.genExprValue(lenExpr, stmtCtx, &loc)));
       }

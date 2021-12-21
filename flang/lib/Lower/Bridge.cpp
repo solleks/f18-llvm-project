@@ -85,10 +85,10 @@ struct IncrementLoopInfo {
 
   // Data members common to both structured and unstructured loops.
   const Fortran::semantics::Symbol &loopVariableSym;
-  const Fortran::semantics::SomeExpr *lowerExpr;
-  const Fortran::semantics::SomeExpr *upperExpr;
-  const Fortran::semantics::SomeExpr *stepExpr;
-  const Fortran::semantics::SomeExpr *maskExpr = nullptr;
+  const Fortran::lower::SomeExpr *lowerExpr;
+  const Fortran::lower::SomeExpr *upperExpr;
+  const Fortran::lower::SomeExpr *stepExpr;
+  const Fortran::lower::SomeExpr *maskExpr = nullptr;
   bool isUnordered; // do concurrent, forall
   llvm::SmallVector<const Fortran::semantics::Symbol *> localInitSymList;
   llvm::SmallVector<const Fortran::semantics::Symbol *> sharedSymList;
@@ -480,7 +480,7 @@ private:
   //===--------------------------------------------------------------------===//
 
   mlir::Value createFIRExpr(mlir::Location loc,
-                            const Fortran::semantics::SomeExpr *expr,
+                            const Fortran::lower::SomeExpr *expr,
                             Fortran::lower::StatementContext &stmtCtx) {
     return fir::getBase(genExprValue(*expr, stmtCtx, &loc));
   }
@@ -1002,7 +1002,7 @@ private:
   void genFIRIncrementLoopBegin(IncrementLoopNestInfo &incrementLoopNestInfo) {
     assert(!incrementLoopNestInfo.empty() && "empty loop nest");
     mlir::Location loc = toLocation();
-    auto genControlValue = [&](const Fortran::semantics::SomeExpr *expr,
+    auto genControlValue = [&](const Fortran::lower::SomeExpr *expr,
                                const IncrementLoopInfo &info) {
       mlir::Type controlType = info.isStructured() ? builder->getIndexType()
                                                    : info.getLoopVariableType();
@@ -1278,9 +1278,9 @@ private:
       };
       for (const Fortran::parser::ConcurrentControl &ctrl :
            std::get<std::list<Fortran::parser::ConcurrentControl>>(header.t)) {
-        const Fortran::semantics::SomeExpr *lo =
+        const Fortran::lower::SomeExpr *lo =
             Fortran::semantics::GetExpr(std::get<1>(ctrl.t));
-        const Fortran::semantics::SomeExpr *hi =
+        const Fortran::lower::SomeExpr *hi =
             Fortran::semantics::GetExpr(std::get<2>(ctrl.t));
         auto &optStep =
             std::get<std::optional<Fortran::parser::ScalarIntExpr>>(ctrl.t);
@@ -1321,9 +1321,9 @@ private:
           ub = highs[headerIndex];
           by = steps[headerIndex++];
         } else {
-          const Fortran::semantics::SomeExpr *lo =
+          const Fortran::lower::SomeExpr *lo =
               Fortran::semantics::GetExpr(std::get<1>(ctrl.t));
-          const Fortran::semantics::SomeExpr *hi =
+          const Fortran::lower::SomeExpr *hi =
               Fortran::semantics::GetExpr(std::get<2>(ctrl.t));
           auto &optStep =
               std::get<std::optional<Fortran::parser::ScalarIntExpr>>(ctrl.t);
@@ -1503,7 +1503,7 @@ private:
     MLIRContext *context = builder->getContext();
     mlir::Location loc = toLocation();
     Fortran::lower::StatementContext stmtCtx;
-    const Fortran::semantics::SomeExpr *expr = Fortran::semantics::GetExpr(
+    const Fortran::lower::SomeExpr *expr = Fortran::semantics::GetExpr(
         std::get<Fortran::parser::Scalar<Fortran::parser::Expr>>(stmt.t));
     bool isCharSelector = isCharacterCategory(expr->GetType()->category());
     bool isLogicalSelector = isLogicalCategory(expr->GetType()->category());
@@ -1534,7 +1534,7 @@ private:
     mlir::Block *defaultBlock = eval.parentConstruct->constructExit->block;
     using CaseValue = Fortran::parser::Scalar<Fortran::parser::ConstantExpr>;
     auto addValue = [&](const CaseValue &caseValue) {
-      const Fortran::semantics::SomeExpr *expr =
+      const Fortran::lower::SomeExpr *expr =
           Fortran::semantics::GetExpr(caseValue.thing);
       if (isCharSelector)
         valueList.push_back(charValue(expr));
@@ -1663,7 +1663,7 @@ private:
   }
 
   fir::ExtendedValue
-  genAssociateSelector(const Fortran::semantics::SomeExpr &selector,
+  genAssociateSelector(const Fortran::lower::SomeExpr &selector,
                        Fortran::lower::StatementContext &stmtCtx) {
     return isArraySectionWithoutVectorSubscript(selector)
                ? Fortran::lower::createSomeArrayBox(*this, selector,
@@ -1681,7 +1681,7 @@ private:
              std::get<std::list<Fortran::parser::Association>>(stmt->t)) {
           Fortran::semantics::Symbol &sym =
               *std::get<Fortran::parser::Name>(assoc.t).symbol;
-          const Fortran::semantics::SomeExpr &selector =
+          const Fortran::lower::SomeExpr &selector =
               *sym.get<Fortran::semantics::AssocEntityDetails>().expr();
           localSymbols.addSymbol(sym, genAssociateSelector(selector, stmtCtx));
         }
@@ -1864,7 +1864,7 @@ private:
   void genFIR(const Fortran::parser::NullifyStmt &stmt) {
     mlir::Location loc = toLocation();
     for (auto &pointerObject : stmt.v) {
-      const Fortran::semantics::SomeExpr *expr =
+      const Fortran::lower::SomeExpr *expr =
           Fortran::semantics::GetExpr(pointerObject);
       assert(expr);
       fir::MutableBoxValue box = genExprMutableBox(loc, *expr);
@@ -1944,8 +1944,8 @@ private:
                                  : implicitIterSpace.stmtContext());
   }
 
-  static bool isArraySectionWithoutVectorSubscript(
-      const Fortran::semantics::SomeExpr &expr) {
+  static bool
+  isArraySectionWithoutVectorSubscript(const Fortran::lower::SomeExpr &expr) {
     return expr.Rank() > 0 && Fortran::evaluate::IsVariable(expr) &&
            !Fortran::evaluate::UnwrapWholeSymbolDataRef(expr) &&
            !Fortran::evaluate::HasVectorSubscript(expr);
@@ -2318,7 +2318,7 @@ private:
       const Fortran::semantics::Symbol &symbol = funit->getSubprogramSymbol();
       if (Fortran::semantics::HasAlternateReturns(symbol)) {
         Fortran::lower::StatementContext stmtCtx;
-        const Fortran::semantics::SomeExpr *expr =
+        const Fortran::lower::SomeExpr *expr =
             Fortran::semantics::GetExpr(*stmt.v);
         assert(expr && "missing alternate return expression");
         mlir::Value altReturnIndex = builder->createConvert(
@@ -2780,9 +2780,9 @@ private:
             [&](const Fortran::evaluate::ProcedureRef &procRef) {
               // Ensure the procRef expressions are the one being visited.
               assert(procRef.arguments().size() == 2);
-              const Fortran::semantics::SomeExpr *lhs =
+              const Fortran::lower::SomeExpr *lhs =
                   procRef.arguments()[0].value().UnwrapExpr();
-              const Fortran::semantics::SomeExpr *rhs =
+              const Fortran::lower::SomeExpr *rhs =
                   procRef.arguments()[1].value().UnwrapExpr();
               assert(lhs && rhs &&
                      "user defined assignment arguments must be expressions");
@@ -2821,7 +2821,7 @@ private:
       analyzeExplicitSpace(e.operator->());
   }
   void analyzeExplicitSpace(const Fortran::parser::WhereConstructStmt &ws) {
-    const Fortran::semantics::SomeExpr *exp = Fortran::semantics::GetExpr(
+    const Fortran::lower::SomeExpr *exp = Fortran::semantics::GetExpr(
         std::get<Fortran::parser::LogicalExpr>(ws.t));
     addMaskVariable(exp);
     analyzeExplicitSpace(*exp);
@@ -2847,7 +2847,7 @@ private:
                body.u);
   }
   void analyzeExplicitSpace(const Fortran::parser::MaskedElsewhereStmt &stmt) {
-    const Fortran::semantics::SomeExpr *exp = Fortran::semantics::GetExpr(
+    const Fortran::lower::SomeExpr *exp = Fortran::semantics::GetExpr(
         std::get<Fortran::parser::LogicalExpr>(stmt.t));
     addMaskVariable(exp);
     analyzeExplicitSpace(*exp);
@@ -2859,7 +2859,7 @@ private:
       analyzeExplicitSpace(e);
   }
   void analyzeExplicitSpace(const Fortran::parser::WhereStmt &stmt) {
-    const Fortran::semantics::SomeExpr *exp = Fortran::semantics::GetExpr(
+    const Fortran::lower::SomeExpr *exp = Fortran::semantics::GetExpr(
         std::get<Fortran::parser::LogicalExpr>(stmt.t));
     addMaskVariable(exp);
     analyzeExplicitSpace(*exp);
