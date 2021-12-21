@@ -1180,12 +1180,15 @@ public:
     else
       eleTy = converter.genType(TC, KIND);
     auto arrayTy = fir::SequenceType::get(shape, eleTy);
-    mlir::Value array = builder.create<fir::UndefOp>(loc, arrayTy);
+    mlir::Value array;
     llvm::SmallVector<mlir::Value> lbounds;
     llvm::SmallVector<mlir::Value> extents;
-    for (auto [lb, extent] : llvm::zip(con.lbounds(), shape)) {
-      lbounds.push_back(builder.createIntegerConstant(loc, idxTy, lb - 1));
-      extents.push_back(builder.createIntegerConstant(loc, idxTy, extent));
+    if (!inInitializer || !inInitializer->genRawVals) {
+      array = builder.create<fir::UndefOp>(loc, arrayTy);
+      for (auto [lb, extent] : llvm::zip(con.lbounds(), shape)) {
+        lbounds.push_back(builder.createIntegerConstant(loc, idxTy, lb - 1));
+        extents.push_back(builder.createIntegerConstant(loc, idxTy, extent));
+      }
     }
     if (size == 0) {
       if constexpr (TC == Fortran::common::TypeCategory::Character) {
@@ -1204,6 +1207,7 @@ public:
       return idx;
     };
     if constexpr (TC == Fortran::common::TypeCategory::Character) {
+      assert(array && "array must not be nullptr");
       do {
         mlir::Value elementVal =
             fir::getBase(genScalarLit<KIND>(con.At(subscripts), con.LEN()));
@@ -1216,6 +1220,10 @@ public:
       llvm::SmallVector<mlir::Attribute> rangeStartIdx;
       uint64_t rangeSize = 0;
       do {
+        if (inInitializer && inInitializer->genRawVals) {
+          genRawLit<TC, KIND>(con.At(subscripts));
+          continue;
+        }
         auto getElementVal = [&]() {
           return builder.createConvert(
               loc, eleTy,
@@ -1245,8 +1253,6 @@ public:
               builder.getArrayAttr(rangeBounds));
           rangeSize = 0;
         }
-        if (inInitializer && inInitializer->genRawVals)
-          genRawLit<TC, KIND>(con.At(subscripts));
       } while (con.IncrementSubscripts(subscripts));
       return fir::ArrayBoxValue{array, extents, lbounds};
     }
@@ -4555,7 +4561,7 @@ private:
         global = builder.createGlobalConstant(
             loc, arrTy, globalName,
             [&](fir::FirOpBuilder &builder) {
-              Fortran::lower::StatementContext stmtCtx(/*prohibited=*/true);
+              Fortran::lower::StatementContext stmtCtx(/*cleanupProhibited=*/true);
               fir::ExtendedValue result =
                   Fortran::lower::createSomeInitializerExpression(
                       loc, converter, toEvExpr(x), symMap, stmtCtx);
