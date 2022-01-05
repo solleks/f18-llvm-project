@@ -2599,7 +2599,14 @@ public:
   ExtValue asArrayArg(const Fortran::evaluate::Designator<A> &, const B &x) {
     // Designator is being passed as an argument to a procedure. Lower the
     // expression to a boxed value.
-    return Fortran::lower::createSomeArrayBox(converter, toEvExpr(x), symMap,
+    auto someExpr = toEvExpr(x);
+    if (Fortran::evaluate::HasVectorSubscript(someExpr)) {
+      TODO(getLoc(), "boxing an expression with a vector subscript");
+      // Need to create a temporary, box the temporary, and add a cleanup of the
+      // temporary here.
+      return {};
+    }
+    return Fortran::lower::createSomeArrayBox(converter, someExpr, symMap,
                                               stmtCtx);
   }
   template <typename A, typename B>
