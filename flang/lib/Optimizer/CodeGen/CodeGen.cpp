@@ -2061,7 +2061,7 @@ struct XArrayCoorOpConversion
       llvm::SmallVector<mlir::Value> args{base, off};
       auto addr = rewriter.create<mlir::LLVM::GEPOp>(loc, voidPtrTy, args);
       if (coor.subcomponent().empty()) {
-        rewriter.replaceOpWithNewOp<mlir::LLVM::BitcastOp>(coor, baseTy, addr);
+        rewriter.replaceOpWithNewOp<mlir::LLVM::BitcastOp>(coor, ty, addr);
       } else {
         auto casted = rewriter.create<mlir::LLVM::BitcastOp>(loc, baseTy, addr);
         llvm::SmallVector<mlir::Value> args = {casted, zero};
@@ -2074,7 +2074,7 @@ struct XArrayCoorOpConversion
         // row-major layout here.
         for (auto i = coor.subcomponentOffset(); i != coor.indicesOffset(); ++i)
           args.push_back(operands[i]);
-        rewriter.replaceOpWithNewOp<mlir::LLVM::GEPOp>(coor, baseTy, args);
+        rewriter.replaceOpWithNewOp<mlir::LLVM::GEPOp>(coor, ty, args);
       }
       return success();
     }
