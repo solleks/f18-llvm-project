@@ -318,7 +318,6 @@ mlir::Value fir::factory::CharacterExprHelper::getCharBoxBuffer(
   return buff;
 }
 
-/// Get the LLVM intrinsic for `memcpy`. Use the 64 bit version.
 mlir::FuncOp fir::factory::getLlvmMemcpy(fir::FirOpBuilder &builder) {
   auto ptrTy = builder.getRefType(builder.getIntegerType(8));
   llvm::SmallVector<mlir::Type> args = {ptrTy, ptrTy, builder.getI64Type(),
@@ -329,7 +328,6 @@ mlir::FuncOp fir::factory::getLlvmMemcpy(fir::FirOpBuilder &builder) {
                                   "llvm.memcpy.p0i8.p0i8.i64", memcpyTy);
 }
 
-/// Get the LLVM intrinsic for `memmove`. Use the 64 bit version.
 mlir::FuncOp fir::factory::getLlvmMemmove(fir::FirOpBuilder &builder) {
   auto ptrTy = builder.getRefType(builder.getIntegerType(8));
   llvm::SmallVector<mlir::Type> args = {ptrTy, ptrTy, builder.getI64Type(),
@@ -340,7 +338,6 @@ mlir::FuncOp fir::factory::getLlvmMemmove(fir::FirOpBuilder &builder) {
                                   "llvm.memmove.p0i8.p0i8.i64", memmoveTy);
 }
 
-/// Get the LLVM intrinsic for `memset`. Use the 64 bit version.
 mlir::FuncOp fir::factory::getLlvmMemset(fir::FirOpBuilder &builder) {
   auto ptrTy = builder.getRefType(builder.getIntegerType(8));
   llvm::SmallVector<mlir::Type> args = {ptrTy, ptrTy, builder.getI64Type(),
@@ -351,13 +348,28 @@ mlir::FuncOp fir::factory::getLlvmMemset(fir::FirOpBuilder &builder) {
                                   "llvm.memset.p0i8.p0i8.i64", memsetTy);
 }
 
-/// Get the standard `realloc` function.
 mlir::FuncOp fir::factory::getRealloc(fir::FirOpBuilder &builder) {
   auto ptrTy = builder.getRefType(builder.getIntegerType(8));
   llvm::SmallVector<mlir::Type> args = {ptrTy, builder.getI64Type()};
   auto reallocTy = mlir::FunctionType::get(builder.getContext(), args, {ptrTy});
   return builder.addNamedFunction(builder.getUnknownLoc(), "realloc",
                                   reallocTy);
+}
+
+mlir::FuncOp fir::factory::getLlvmStackSave(fir::FirOpBuilder &builder) {
+  auto ptrTy = builder.getRefType(builder.getIntegerType(8));
+  auto funcTy =
+      mlir::FunctionType::get(builder.getContext(), llvm::None, {ptrTy});
+  return builder.addNamedFunction(builder.getUnknownLoc(), "llvm.stacksave",
+                                  funcTy);
+}
+
+mlir::FuncOp fir::factory::getLlvmStackRestore(fir::FirOpBuilder &builder) {
+  auto ptrTy = builder.getRefType(builder.getIntegerType(8));
+  auto funcTy =
+      mlir::FunctionType::get(builder.getContext(), {ptrTy}, llvm::None);
+  return builder.addNamedFunction(builder.getUnknownLoc(), "llvm.stackrestore",
+                                  funcTy);
 }
 
 /// Create a loop to copy `count` characters from `src` to `dest`. Note that the

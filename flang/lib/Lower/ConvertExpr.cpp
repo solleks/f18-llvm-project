@@ -1995,11 +1995,29 @@ public:
       caller.walkResultLengths([&](const Fortran::lower::SomeExpr &e) {
         lengths.emplace_back(lowerSpecExpr(e));
       });
-      /// Result lengths parameters should not be provided to box storage
-      /// allocation and save_results, but they are still useful information to
-      /// keep in the ExtendedValue if non-deferred.
+
+      // Result lengths parameters should not be provided to box storage
+      // allocation and save_results, but they are still useful information to
+      // keep in the ExtendedValue if non-deferred.
       if (!type.isa<fir::BoxType>())
         resultLengths = lengths;
+
+      if (!extents.empty() || !lengths.empty()) {
+        auto *bldr = &converter.getFirOpBuilder();
+        auto stackSaveFn = fir::factory::getLlvmStackSave(builder);
+        auto stackSaveSymbol = bldr->getSymbolRefAttr(stackSaveFn.getName());
+        mlir::Value sp =
+            bldr->create<fir::CallOp>(loc, stackSaveFn.getType().getResults(),
+                                      stackSaveSymbol, mlir::ValueRange{})
+                .getResult(0);
+        stmtCtx.attachCleanup([bldr, loc, sp]() {
+          auto stackRestoreFn = fir::factory::getLlvmStackRestore(*bldr);
+          auto stackRestoreSymbol =
+              bldr->getSymbolRefAttr(stackRestoreFn.getName());
+          bldr->create<fir::CallOp>(loc, stackRestoreFn.getType().getResults(),
+                                    stackRestoreSymbol, mlir::ValueRange{sp});
+        });
+      }
       mlir::Value temp =
           builder.createTemporary(loc, type, ".result", extents, resultLengths);
       return toExtendedValue(loc, temp, extents, lengths);
@@ -2251,7 +2269,7 @@ public:
   /// Generate a contiguous temp to pass \p actualArg as argument \p arg. The
   /// creation of the temp and copy-in can be made conditional at runtime by
   /// providing a runtime boolean flag \p restrictCopyAtRuntime (in which case
-  /// the temp and copy will only be made if the value is true at runtmime).
+  /// the temp and copy will only be made if the value is true at runtime).
   ExtValue genCopyIn(const ExtValue &actualArg,
                      const Fortran::lower::CallerInterface::PassedEntity &arg,
                      CopyOutPairs &copyOutPairs,
@@ -3250,6 +3268,7 @@ public:
     llvm::SmallVector<mlir::Value> shape = genIterationShape();
     auto [iterSpace, insPt] = genImplicitLoops(shape, /*innerArg=*/{});
     f(iterSpace);
+    finalizeElementCtx();
     builder.restoreInsertionPoint(insPt);
   }
 
@@ -4006,9 +4025,11 @@ private:
   /// array expression evaluation. Collect the cleanups here so the resources
   /// can be freed before the next loop iteration, avoiding memory leaks. etc.
   Fortran::lower::StatementContext &getElementCtx() {
-    if (!elementCtx)
-      elementCtx = new Fortran::lower::StatementContext;
-    return *elementCtx;
+    if (!elementCtx) {
+      stmtCtx.pushScope();
+      elementCtx = true;
+    }
+    return stmtCtx;
   }
 
   /// If there were temporaries created for this element evaluation, finalize
@@ -4016,8 +4037,8 @@ private:
   /// fir::ResultOp at the end of the innermost loop.
   void finalizeElementCtx() {
     if (elementCtx) {
-      elementCtx->finalize();
-      elementCtx = nullptr;
+      stmtCtx.finalize(/*popScope=*/true);
+      elementCtx = false;
     }
   }
 
@@ -4083,7 +4104,7 @@ private:
     };
   }
 
-  // A procedure reference to a user-defined elemental procedure.
+  /// Lower a procedure reference to a user-defined elemental procedure.
   CC genElementalUserDefinedProcRef(
       const Fortran::evaluate::ProcedureRef &procRef,
       llvm::Optional<mlir::Type> retTy) {
@@ -4202,7 +4223,7 @@ private:
                 [&](const auto &) { return fir::getBase(exv); });
             caller.placeInput(argIface, arg);
           }
-          return ScalarExprLowering{loc, converter, symMap, stmtCtx}
+          return ScalarExprLowering{loc, converter, symMap, getElementCtx()}
               .genCallOpAndResult(caller, callSiteType, retTy);
         };
   }
@@ -6183,7 +6204,7 @@ private:
   Fortran::lower::AbstractConverter &converter;
   fir::FirOpBuilder &builder;
   Fortran::lower::StatementContext &stmtCtx;
-  Fortran::lower::StatementContext *elementCtx = nullptr;
+  bool elementCtx = false;
   Fortran::lower::SymMap &symMap;
   /// The continuation to generate code to update the destination.
   llvm::Optional<CC> ccStoreToDest;
