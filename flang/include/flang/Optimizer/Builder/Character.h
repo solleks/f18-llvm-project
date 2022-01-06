@@ -190,11 +190,23 @@ private:
   mlir::Location loc;
 };
 
-// FIXME: Move these to Optimizer
+/// Get the LLVM intrinsic for `memcpy`. Use the 64 bit version.
 mlir::FuncOp getLlvmMemcpy(FirOpBuilder &builder);
+
+/// Get the LLVM intrinsic for `memmove`. Use the 64 bit version.
 mlir::FuncOp getLlvmMemmove(FirOpBuilder &builder);
+
+/// Get the LLVM intrinsic for `memset`. Use the 64 bit version.
 mlir::FuncOp getLlvmMemset(FirOpBuilder &builder);
+
+/// Get the C standard library `realloc` function.
 mlir::FuncOp getRealloc(FirOpBuilder &builder);
+
+/// Get the `llvm.stacksave` intrinsic.
+mlir::FuncOp getLlvmStackSave(FirOpBuilder &builder);
+
+/// Get the `llvm.stackrestore` intrinsic.
+mlir::FuncOp getLlvmStackRestore(FirOpBuilder &builder);
 
 } // namespace fir::factory
 

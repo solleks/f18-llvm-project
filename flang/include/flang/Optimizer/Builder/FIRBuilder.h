@@ -59,12 +59,12 @@ public:
   /// Get a reference to the kind map.
   const fir::KindMapping &getKindMap() { return kindMap; }
 
-  /// The LHS and RHS are not always in agreement in terms of
-  /// type. In some cases, the disagreement is between COMPLEX and other scalar
-  /// types. In that case, the conversion must insert/extract out of a COMPLEX
-  /// value to have the proper semantics and be strongly typed. For e.g for
-  /// converting an integer/real to a complex, the real part is filled using
-  /// the integer/real after type conversion and the imaginary part is zero.
+  /// The LHS and RHS are not always in agreement in terms of type. In some
+  /// cases, the disagreement is between COMPLEX and other scalar types. In that
+  /// case, the conversion must insert (extract) out of a COMPLEX value to have
+  /// the proper semantics and be strongly typed. E.g., converting an integer
+  /// (real) to a complex, the real part is filled using the integer (real)
+  /// after type conversion and the imaginary part is zero.
   mlir::Value convertWithSemantics(mlir::Location loc, mlir::Type toTy,
                                    mlir::Value val,
                                    bool allowConversionsWithCharacters = false);
@@ -94,11 +94,12 @@ public:
     return getI64Type();
   }
 
+  /// Wrap `str` to a SymbolRefAttr.
   mlir::SymbolRefAttr getSymbolRefAttr(llvm::StringRef str) {
     return mlir::SymbolRefAttr::get(getContext(), str);
   }
 
-  /// Get the mlir real type that implements fortran REAL(kind).
+  /// Get the mlir float type that implements Fortran REAL(kind).
   mlir::Type getRealType(int kind);
 
   /// Create a null constant memory reference of type \p ptrType.
