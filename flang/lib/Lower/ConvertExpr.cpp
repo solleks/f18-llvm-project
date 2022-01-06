@@ -1996,7 +1996,7 @@ public:
         lengths.emplace_back(lowerSpecExpr(e));
       });
 
-      // Result lengths parameters should not be provided to box storage
+      // Result length parameters should not be provided to box storage
       // allocation and save_results, but they are still useful information to
       // keep in the ExtendedValue if non-deferred.
       if (!type.isa<fir::BoxType>())
