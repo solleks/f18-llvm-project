@@ -30,6 +30,7 @@
 #include "flang/Optimizer/Builder/Runtime/Numeric.h"
 #include "flang/Optimizer/Builder/Runtime/RTBuilder.h"
 #include "flang/Optimizer/Builder/Runtime/Reduction.h"
+#include "flang/Optimizer/Builder/Runtime/Stop.h"
 #include "flang/Optimizer/Builder/Runtime/Transformational.h"
 #include "flang/Optimizer/Support/FatalError.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -464,6 +465,7 @@ struct IntrinsicLibrary {
                                    llvm::ArrayRef<fir::ExtendedValue>);
   mlir::Value genDprod(mlir::Type, llvm::ArrayRef<mlir::Value>);
   fir::ExtendedValue genEoshift(mlir::Type, llvm::ArrayRef<fir::ExtendedValue>);
+  void genExit(llvm::ArrayRef<fir::ExtendedValue>);
   mlir::Value genExponent(mlir::Type, llvm::ArrayRef<mlir::Value>);
   template <Extremum, ExtremumBehavior>
   mlir::Value genExtremum(mlir::Type, llvm::ArrayRef<mlir::Value>);
@@ -697,6 +699,10 @@ static constexpr IntrinsicHandler handlers[]{
        {"shift", asAddr},
        {"boundary", asAddr},
        {"dim", asValue}}},
+     /*isElemental=*/false},
+    {"exit",
+     &I::genExit,
+     {{{"status", asValue}}},
      /*isElemental=*/false},
     {"exponent", &I::genExponent},
     {"floor", &I::genFloor},
@@ -2228,6 +2234,22 @@ IntrinsicLibrary::genEoshift(mlir::Type resultType,
   }
   return readAndAddCleanUp(resultMutableBox, resultType,
                            "unexpected result for EOSHIFT");
+}
+
+// EXIT
+void IntrinsicLibrary::genExit(llvm::ArrayRef<fir::ExtendedValue> args) {
+  assert(args.size() == 1);
+
+  mlir::Value status =
+      isAbsent(args[0])
+          ? builder.createIntegerConstant(loc, builder.getDefaultIntegerType(),
+                                          EXIT_SUCCESS)
+          : fir::getBase(args[0]);
+
+  assert(status.getType() == builder.getDefaultIntegerType() &&
+         "STATUS parameter must be an INTEGER of default kind");
+
+  fir::runtime::genExit(builder, loc, status);
 }
 
 // EXPONENT
