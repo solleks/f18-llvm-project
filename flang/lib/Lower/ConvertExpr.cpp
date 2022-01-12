@@ -1131,7 +1131,7 @@ public:
       mlir::NamedAttribute dataAttr(valTag, strAttr);
       auto sizeTag = mlir::Identifier::get(fir::StringLitOp::size(), context);
       mlir::NamedAttribute sizeAttr(sizeTag, builder.getI64IntegerAttr(len));
-      llvm::SmallVector<mlir::NamedAttribute> attrs{dataAttr, sizeAttr};
+      llvm::SmallVector<mlir::NamedAttribute> attrs = {dataAttr, sizeAttr};
       return builder.create<fir::StringLitOp>(
           getLoc(), llvm::ArrayRef<mlir::Type>{type}, llvm::None, attrs);
     };
@@ -1320,7 +1320,7 @@ public:
 
   ExtValue gen(const Fortran::evaluate::ComplexPart &x) {
     mlir::Location loc = getLoc();
-    mlir::IndexType idxTy = builder.getIndexType();
+    auto idxTy = builder.getI32Type();
     ExtValue exv = gen(x.complex());
     mlir::Value base = fir::getBase(exv);
     fir::factory::Complex helper{builder, loc};
@@ -1480,7 +1480,7 @@ public:
     fir::SequenceType::Shape newBnds;
     // follow Fortran semantics and remove columns (from right)
     std::size_t e = shape.size() - dims;
-    for (decltype(e) i{0}; i < e; ++i)
+    for (decltype(e) i = 0; i < e; ++i)
       newBnds.push_back(shape[i]);
     if (!newBnds.empty())
       return fir::SequenceType::get(newBnds, seqTy.getEleTy());
@@ -6253,12 +6253,12 @@ fir::GlobalOp Fortran::lower::createDenseGlobal(
   Fortran::lower::StatementContext stmtCtx(/*prohibited=*/true);
   Fortran::lower::SymMap emptyMap;
   InitializerData initData(/*genRawVals=*/true);
-  auto sel = ScalarExprLowering{loc, converter, emptyMap, stmtCtx,
-                                /*initializer=*/&initData};
+  ScalarExprLowering sel(loc, converter, emptyMap, stmtCtx,
+                         /*initializer=*/&initData);
   sel.genval(expr);
 
   size_t sz = initData.rawVals.size();
-  llvm::ArrayRef<mlir::Attribute> ar{initData.rawVals.data(), sz};
+  llvm::ArrayRef<mlir::Attribute> ar = {initData.rawVals.data(), sz};
 
   mlir::RankedTensorType tensorTy;
   auto &builder = converter.getFirOpBuilder();
@@ -6423,9 +6423,8 @@ mlir::Value Fortran::lower::createSubroutineCall(
       // arguments must be take into account potential overlap. So far the front
       // end does not add parentheses around the RHS argument in the call as it
       // should according to 15.4.3.4.3 p2.
-      Fortran::lower::SomeExpr expr{call};
-      Fortran::lower::createSomeExtendedExpression(loc, converter, expr, symMap,
-                                                   stmtCtx);
+      Fortran::lower::createSomeExtendedExpression(
+          loc, converter, toEvExpr(call), symMap, stmtCtx);
     }
     return {};
   }
@@ -6434,15 +6433,13 @@ mlir::Value Fortran::lower::createSubroutineCall(
          "subroutine calls are not allowed inside WHERE and FORALL");
 
   if (isElementalProcWithArrayArgs(call)) {
-    Fortran::lower::SomeExpr expr{call};
     ArrayExprLowering::lowerElementalSubroutine(converter, symMap, stmtCtx,
-                                                expr);
+                                                toEvExpr(call));
     return {};
   }
   // Simple subroutine call, with potential alternate return.
-  Fortran::lower::SomeExpr expr{call};
-  auto res = Fortran::lower::createSomeExtendedExpression(loc, converter, expr,
-                                                          symMap, stmtCtx);
+  auto res = Fortran::lower::createSomeExtendedExpression(
+      loc, converter, toEvExpr(call), symMap, stmtCtx);
   return fir::getBase(res);
 }
 
