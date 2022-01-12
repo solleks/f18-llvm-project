@@ -433,10 +433,10 @@ static bool mutuallyExclusiveSliceRange(ArrayLoadOp ld, ArrayMergeStoreOp st) {
   if (ld.getResult() == st.original())
     return false;
 
-  auto getSliceOp = [](mlir::Value val) -> fir::SliceOp {
+  auto getSliceOp = [](mlir::Value val) -> SliceOp {
     if (!val)
       return {};
-    auto sliceOp = mlir::dyn_cast_or_null<fir::SliceOp>(val.getDefiningOp());
+    auto sliceOp = mlir::dyn_cast_or_null<SliceOp>(val.getDefiningOp());
     if (!sliceOp)
       return {};
     return sliceOp;
@@ -464,7 +464,7 @@ static bool mutuallyExclusiveSliceRange(ArrayLoadOp ld, ArrayMergeStoreOp st) {
   auto displacedByConstant = [](mlir::Value v1, mlir::Value v2) {
     auto removeConvert = [](mlir::Value v) -> mlir::Operation * {
       auto *op = v.getDefiningOp();
-      while (auto conv = mlir::dyn_cast_or_null<fir::ConvertOp>(op))
+      while (auto conv = mlir::dyn_cast_or_null<ConvertOp>(op))
         op = conv.value().getDefiningOp();
       return op;
     };
@@ -875,6 +875,34 @@ genCoorOp(mlir::PatternRewriter &rewriter, mlir::Location loc, mlir::Type eleTy,
   return result;
 }
 
+static mlir::Value getCharacterLen(mlir::Location loc, FirOpBuilder &builder,
+                                   ArrayLoadOp load, CharacterType charTy) {
+  auto charLenTy = builder.getCharacterLengthType();
+  if (charTy.hasDynamicLen()) {
+    if (load.memref().getType().isa<BoxType>()) {
+      // The loaded array is an emboxed value. Get the CHARACTER length from
+      // the box value.
+      auto eleSzInBytes =
+          builder.create<BoxEleSizeOp>(loc, charLenTy, load.memref());
+      auto kindSize =
+          builder.getKindMap().getCharacterBitsize(charTy.getFKind());
+      auto kindByteSize =
+          builder.createIntegerConstant(loc, charLenTy, kindSize / 8);
+      return builder.create<mlir::arith::DivSIOp>(loc, eleSzInBytes,
+                                                  kindByteSize);
+    }
+    // The loaded array is a (set of) unboxed values. If the CHARACTER's
+    // length is not a constant, it must be provided as a type parameter to
+    // the array_load.
+    auto typeparams = load.typeparams();
+    assert(typeparams.size() > 0 && "expected type parameters on array_load");
+    return typeparams.back();
+  }
+  // The typical case: the length of the CHARACTER is a compile-time
+  // constant that is encoded in the type information.
+  return builder.createIntegerConstant(loc, charLenTy, charTy.getLen());
+}
+
 /// Generate a shallow array copy. This is used for both copy-in and copy-out.
 template <bool CopyIn>
 void genArrayCopy(mlir::Location loc, mlir::PatternRewriter &rewriter,
@@ -914,20 +942,53 @@ void genArrayCopy(mlir::Location loc, mlir::PatternRewriter &rewriter,
   FirOpBuilder builder(rewriter, getKindMapping(module));
   // Copy from (to) object to (from) temp copy of same object.
   if (auto charTy = eleTy.dyn_cast<CharacterType>()) {
-    auto len =
-        charTy.hasDynamicLen()
-            ? typeparams.back()
-            : builder.createIntegerConstant(
-                  loc, builder.getCharacterLengthType(), charTy.getLen());
+    auto len = getCharacterLen(loc, builder, arrLoad, charTy);
     CharBoxValue toChar(toAddr, len);
     CharBoxValue fromChar(fromAddr, len);
-    fir::factory::genScalarAssignment(builder, loc, toChar, fromChar);
+    factory::genScalarAssignment(builder, loc, toChar, fromChar);
   } else {
     if (hasDynamicSize(eleTy))
       TODO(loc, "copy element of dynamic size");
-    fir::factory::genScalarAssignment(builder, loc, toAddr, fromAddr);
+    factory::genScalarAssignment(builder, loc, toAddr, fromAddr);
   }
   rewriter.restoreInsertionPoint(insPt);
+}
+
+/// The array load may be either a boxed or unboxed value. If the value is
+/// boxed, we read the type parameters from the boxed value.
+static llvm::SmallVector<mlir::Value>
+genArrayLoadTypeParameters(mlir::Location loc, mlir::PatternRewriter &rewriter,
+                           ArrayLoadOp load) {
+  if (load.typeparams().empty()) {
+    auto eleTy =
+        unwrapSequenceType(unwrapPassByRefType(load.memref().getType()));
+    if (hasDynamicSize(eleTy)) {
+      if (auto charTy = eleTy.dyn_cast<CharacterType>()) {
+        assert(load.memref().getType().isa<BoxType>());
+        auto module = load->getParentOfType<mlir::ModuleOp>();
+        FirOpBuilder builder(rewriter, getKindMapping(module));
+        return {getCharacterLen(loc, builder, load, charTy)};
+      }
+      TODO(loc, "unhandled dynamic type parameters");
+    }
+    return {};
+  }
+  return load.typeparams();
+}
+
+static llvm::SmallVector<mlir::Value>
+findNonconstantExtents(mlir::Type memrefTy,
+                       llvm::ArrayRef<mlir::Value> extents) {
+  llvm::SmallVector<mlir::Value> nce;
+  auto arrTy = unwrapPassByRefType(memrefTy);
+  auto seqTy = arrTy.cast<SequenceType>();
+  for (auto [s, x] : llvm::zip(seqTy.getShape(), extents))
+    if (s == SequenceType::getUnknownExtent())
+      nce.emplace_back(x);
+  if (extents.size() > seqTy.getShape().size())
+    for (auto x : extents.drop_front(seqTy.getShape().size()))
+      nce.emplace_back(x);
+  return nce;
 }
 
 namespace {
@@ -961,9 +1022,11 @@ public:
     bool copyUsingSlice = false;
     auto shapeOp = getOrReadExtentsAndShapeOp(loc, rewriter, load, extents,
                                               copyUsingSlice);
+    llvm::SmallVector<mlir::Value> nonconstantExtents =
+        findNonconstantExtents(load.memref().getType(), extents);
     auto allocmem = rewriter.create<AllocMemOp>(
-        loc, dyn_cast_ptrOrBoxEleTy(load.memref().getType()), load.typeparams(),
-        extents);
+        loc, dyn_cast_ptrOrBoxEleTy(load.memref().getType()),
+        genArrayLoadTypeParameters(loc, rewriter, load), nonconstantExtents);
     genArrayCopy</*copyIn=*/true>(load.getLoc(), rewriter, allocmem,
                                   load.memref(), shapeOp, load.slice(), load);
     // Generate the reference for the access.
@@ -1006,18 +1069,14 @@ public:
       rewriter.setInsertionPoint(loadOp);
       // Copy in.
       llvm::SmallVector<mlir::Value> extents;
-      llvm::SmallVector<mlir::Value> nonconstantExtents;
       bool copyUsingSlice = false;
       auto shapeOp = getOrReadExtentsAndShapeOp(loc, rewriter, load, extents,
                                                 copyUsingSlice);
-      auto arrTy = unwrapPassByRefType(load.memref().getType());
-      auto seqTy = arrTy.template cast<SequenceType>();
-      for (auto [s, x] : llvm::zip(seqTy.getShape(), extents))
-        if (s == SequenceType::getUnknownExtent())
-          nonconstantExtents.emplace_back(x);
+      llvm::SmallVector<mlir::Value> nonconstantExtents =
+          findNonconstantExtents(load.memref().getType(), extents);
       auto allocmem = rewriter.create<AllocMemOp>(
           loc, dyn_cast_ptrOrBoxEleTy(load.memref().getType()),
-          load.typeparams(), nonconstantExtents);
+          genArrayLoadTypeParameters(loc, rewriter, load), nonconstantExtents);
       genArrayCopy</*copyIn=*/true>(load.getLoc(), rewriter, allocmem,
                                     load.memref(), shapeOp, load.slice(), load);
       rewriter.setInsertionPoint(op);
