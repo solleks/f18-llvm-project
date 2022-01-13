@@ -4738,7 +4738,7 @@ private:
   /// (loop-invarianet) scalar expressions. This returns the base entity, the
   /// resulting type, and a continuation to adjust the default iteration space.
   void genSliceIndices(ComponentPath &cmptData, const ExtValue &arrayExv,
-                       const Fortran::evaluate::ArrayRef &x) {
+                       const Fortran::evaluate::ArrayRef &x, bool atBase) {
     mlir::Location loc = getLoc();
     mlir::IndexType idxTy = builder.getIndexType();
     mlir::Value one = builder.createIntegerConstant(loc, idxTy, 1);
@@ -4789,8 +4789,8 @@ private:
                     IterationSpace newIters = currentPC(iters);
                     mlir::Value impliedIter = newIters.iterValue(subsIndex);
                     // FIXME: must use the lower bound of this component.
-                    // auto arrLowerBound = getLBound(arrayExv, subsIndex, one);
-                    auto arrLowerBound = one;
+                    auto arrLowerBound =
+                        atBase ? getLBound(arrayExv, subsIndex, one) : one;
                     auto initial = builder.create<mlir::arith::SubIOp>(
                         loc, lowerBound, arrLowerBound);
                     auto prod = builder.create<mlir::arith::MulIOp>(
@@ -5825,7 +5825,7 @@ private:
               },
               [&](const Fortran::evaluate::ArrayRef *x) {
                 if (Fortran::lower::isRankedArrayAccess(*x)) {
-                  genSliceIndices(components, arrayExv, *x);
+                  genSliceIndices(components, arrayExv, *x, atBase);
                 } else {
                   // Array access where the expressions are scalar and cannot
                   // depend upon the implied iteration space.
