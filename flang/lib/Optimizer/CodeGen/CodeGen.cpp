@@ -391,8 +391,7 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
         auto call = rewriter.create<mlir::LLVM::CallOp>(
             loc, ity, lenParams, llvm::ArrayRef<mlir::NamedAttribute>{attr});
         size = call.getResult(0);
-        ty = mlir::LLVM::LLVMPointerType::get(
-            mlir::IntegerType::get(alloc.getContext(), 8));
+        ty = getVoidPtrType(alloc.getContext());
       } else {
         return emitError(loc, "unexpected type ")
                << scalarType << " with type parameters";
