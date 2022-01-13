@@ -365,13 +365,14 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
     mlir::ValueRange operands = adaptor.getOperands();
     auto loc = alloc.getLoc();
     mlir::Type ity = lowerTy().indexType();
+    unsigned i = 0;
     mlir::Value size = genConstantIndex(loc, ity, rewriter, 1).getResult();
     mlir::Type ty = convertType(alloc.getType());
     mlir::Type resultTy = ty;
     if (alloc.hasLenParams()) {
-      std::size_t end = alloc.numLenParams();
+      unsigned end = alloc.numLenParams();
       llvm::SmallVector<mlir::Value> lenParams;
-      for (std::size_t i = 0; i < end; ++i)
+      for (; i < end; ++i)
         lenParams.push_back(operands[i]);
       mlir::Type scalarType = fir::unwrapSequenceType(alloc.getInType());
       if (auto chrTy = scalarType.dyn_cast<fir::CharacterType>()) {
@@ -390,7 +391,8 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
         auto call = rewriter.create<mlir::LLVM::CallOp>(
             loc, ity, lenParams, llvm::ArrayRef<mlir::NamedAttribute>{attr});
         size = call.getResult(0);
-        ty = getVoidPtrType(alloc.getContext());
+        ty = mlir::LLVM::LLVMPointerType::get(
+            mlir::IntegerType::get(alloc.getContext(), 8));
       } else {
         return emitError(loc, "unexpected type ")
                << scalarType << " with type parameters";
@@ -408,7 +410,8 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
             genConstantIndex(loc, ity, rewriter, constSize).getResult();
         size = rewriter.create<mlir::LLVM::MulOp>(loc, ity, size, constVal);
       }
-      for (std::size_t i = 0, end = operands.size(); i < end; ++i)
+      unsigned end = operands.size();
+      for (; i < end; ++i)
         size = rewriter.create<mlir::LLVM::MulOp>(
             loc, ity, size, integerCast(loc, rewriter, ity, operands[i]));
     }
