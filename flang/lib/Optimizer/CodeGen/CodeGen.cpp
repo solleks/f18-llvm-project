@@ -406,8 +406,8 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
         for (auto extent : seqTy.getShape())
           if (extent != fir::SequenceType::getUnknownExtent())
             constSize *= extent;
-        mlir::Value constVal{
-            genConstantIndex(loc, ity, rewriter, constSize).getResult()};
+        mlir::Value constVal =
+            genConstantIndex(loc, ity, rewriter, constSize).getResult();
         size = rewriter.create<mlir::LLVM::MulOp>(loc, ity, size, constVal);
       }
       unsigned end = operands.size();
