@@ -65,6 +65,8 @@ public:
         [&](fir::CharacterType charTy) { return convertCharType(charTy); });
     addConversion(
         [&](fir::ComplexType cmplx) { return convertComplexType(cmplx); });
+    addConversion(
+        [&](fir::RecordType derived) { return convertRecordType(derived); });
     addConversion([&](fir::FieldType field) {
       return mlir::IntegerType::get(field.getContext(), 32);
     });
@@ -87,11 +89,6 @@ public:
     });
     addConversion(
         [&](fir::PointerType pointer) { return convertPointerLike(pointer); });
-    addConversion([&](fir::RecordType derived,
-                      SmallVectorImpl<mlir::Type> &results,
-                      ArrayRef<mlir::Type> callStack) {
-      return convertRecordType(derived, results, callStack);
-    });
     addConversion(
         [&](fir::RealType real) { return convertRealType(real.getFKind()); });
     addConversion(
@@ -158,29 +155,6 @@ public:
   // i64 can be used to index into aggregates like arrays
   mlir::Type indexType() { return mlir::IntegerType::get(&getContext(), 64); }
 
-  // fir.type<name(p : TY'...){f : TY...}>  -->  llvm<"%name = { ty... }">
-  llvm::Optional<LogicalResult>
-  convertRecordType(fir::RecordType derived,
-                    SmallVectorImpl<mlir::Type> &results,
-                    ArrayRef<mlir::Type> callStack) {
-    auto name = derived.getName();
-    auto st = mlir::LLVM::LLVMStructType::getIdentified(&getContext(), name);
-    // We are using an O(n) function (llvm::count) since we expect the stack
-    // size to be small.
-    if (llvm::count(callStack, derived) > 1) {
-      results.push_back(st);
-      return success();
-    }
-    llvm::SmallVector<mlir::Type> members;
-    for (auto mem : derived.getTypeList())
-      members.push_back(convertType(mem.second).cast<mlir::Type>());
-
-    if (mlir::failed(st.setBody(members, /*isPacked=*/false)))
-      return failure();
-    results.push_back(st);
-    return success();
-  }
-
   // Is an extended descriptor needed given the element type of a fir.box type ?
   // Extended descriptors are required for derived types.
   bool requiresExtendedDesc(mlir::Type boxElementType) {
@@ -214,9 +188,11 @@ public:
     descFields.push_back(
         getDescFieldTypeModel<kVersionPosInBox>()(&getContext()));
     // rank
-    descFields.push_back(getDescFieldTypeModel<kRankPosInBox>()(&getContext()));
+    descFields.push_back(
+        getDescFieldTypeModel<kRankPosInBox>()(&getContext()));
     // type
-    descFields.push_back(getDescFieldTypeModel<kTypePosInBox>()(&getContext()));
+    descFields.push_back(
+        getDescFieldTypeModel<kTypePosInBox>()(&getContext()));
     // attribute
     descFields.push_back(
         getDescFieldTypeModel<kAttributePosInBox>()(&getContext()));
@@ -347,6 +323,28 @@ public:
     return fromRealTypeID(kindMapping.getRealTypeID(kind), kind);
   }
 
+  // fir.type<name(p : TY'...){f : TY...}>  -->  llvm<"%name = { ty... }">
+  mlir::Type convertRecordType(fir::RecordType derived) {
+    auto name = derived.getName();
+    // The cache is needed to keep a unique mapping from name -> StructType
+    auto iter = identStructCache.find(name);
+    if (iter != identStructCache.end())
+      return iter->second;
+    auto st = mlir::LLVM::LLVMStructType::getIdentified(&getContext(), name);
+    identStructCache[name] = st;
+    llvm::SmallVector<mlir::Type> members;
+    for (auto mem : derived.getTypeList()) {
+      // Prevent fir.box from degenerating to a pointer to a descriptor in the
+      // context of a record type.
+      if (auto box = mem.second.dyn_cast<fir::BoxType>())
+        members.push_back(convertBoxTypeAsStruct(box));
+      else
+        members.push_back(convertType(mem.second).cast<mlir::Type>());
+    }
+    (void)st.setBody(members, /*isPacked=*/false);
+    return st;
+  }
+
   // fir.array<c ... :any>  -->  llvm<"[...[c x any]]">
   mlir::Type convertSequenceType(SequenceType seq) {
     auto baseTy = convertType(seq.getEleTy());
@@ -375,7 +373,7 @@ public:
         mlir::IntegerType::get(&getContext(), 8));
   }
 
-  /// Convert llvm::Type::TypeID to mlir::Type
+   /// Convert llvm::Type::TypeID to mlir::Type
   mlir::Type fromRealTypeID(llvm::Type::TypeID typeID, fir::KindTy kind) {
     switch (typeID) {
     case llvm::Type::TypeID::HalfTyID:
@@ -402,6 +400,7 @@ public:
 private:
   KindMapping kindMapping;
   std::unique_ptr<CodeGenSpecifics> specifics;
+  static llvm::StringMap<mlir::Type> identStructCache;
 };
 
 } // namespace fir
