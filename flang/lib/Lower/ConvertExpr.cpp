@@ -4009,33 +4009,25 @@ private:
   // Expression traversal and lowering.
   //===--------------------------------------------------------------------===//
 
-  // Lower the expression in a scalar context.
+  /// Lower the expression, \p x, in a scalar context.
   template <typename A>
   ExtValue asScalar(const A &x) {
     return ScalarExprLowering{getLoc(), converter, symMap, stmtCtx}.genval(x);
   }
+
+  /// Lower the expression, \p x, in a scalar context. If this is an explicit
+  /// space, the expression may be scalar and refer to an array. We want to
+  /// raise the array access to array operations in FIR to analyze potential
+  /// conflicts even when the result is a scalar element.
   template <typename A>
   ExtValue asScalarArray(const A &x) {
-    assert(explicitSpace);
-    return genarr(x)(IterationSpace{});
+    return explicitSpaceIsActive() ? genarr(x)(IterationSpace{}) : asScalar(x);
   }
 
   /// Lower the expression in a scalar context to a memory reference.
   template <typename A>
   ExtValue asScalarRef(const A &x) {
     return ScalarExprLowering{getLoc(), converter, symMap, stmtCtx}.gen(x);
-  }
-  template <typename A>
-  ExtValue asScalarArrayRef(const A &x) {
-    assert(explicitSpace);
-    PushSemantics(ConstituentSemantics::RefOpaque);
-    return genarr(x)(IterationSpace{});
-  }
-  template <typename A>
-  ExtValue asScalarArrayRef(const A &x, ComponentPath &components) {
-    assert(explicitSpace);
-    PushSemantics(ConstituentSemantics::RefOpaque);
-    return genarr(x, components)(IterationSpace{});
   }
 
   // An expression with non-zero rank is an array expression.
@@ -5890,7 +5882,7 @@ private:
                               // Lower scalar index expression, append it to
                               // subs.
                               mlir::Value subscriptVal =
-                                  fir::getBase(asScalar(e));
+                                  fir::getBase(asScalarArray(e));
                               // arrayExv is the base array. It needs to reflect
                               // the current array component instead.
                               // FIXME: must use lower bound of this component,

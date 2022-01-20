@@ -54,8 +54,8 @@ end subroutine test2_forall_construct
 ! CHECK:             %[[VAL_41:.*]] = fir.convert %[[VAL_40]] : (i64) -> index
 ! CHECK:             %[[VAL_42:.*]] = arith.subi %[[VAL_41]], %[[VAL_34]] : index
 ! CHECK:             %[[VAL_43:.*]] = arith.constant 1 : index
-! CHECK:             %[[VAL_44:.*]] = fir.load %[[VAL_5]] : !fir.ref<i32>
-! CHECK:             %[[VAL_45:.*]] = arith.constant 1 : i32
+! CHECK-DAG:         %[[VAL_44:.*]] = fir.load %[[VAL_5]] : !fir.ref<i32>
+! CHECK-DAG:         %[[VAL_45:.*]] = arith.constant 1 : i32
 ! CHECK:             %[[VAL_46:.*]] = arith.addi %[[VAL_44]], %[[VAL_45]] : i32
 ! CHECK:             %[[VAL_47:.*]] = fir.convert %[[VAL_46]] : (i32) -> i64
 ! CHECK:             %[[VAL_48:.*]] = fir.convert %[[VAL_47]] : (i64) -> index
