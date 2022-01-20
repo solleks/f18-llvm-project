@@ -284,6 +284,67 @@ arrayLoadExtValue(fir::FirOpBuilder &builder, mlir::Location loc,
   TODO(loc, "component is boxed, retreive its type parameters");
 }
 
+/// Place \p exv in memory if it is not already a memory reference. If
+/// \p forceValueType is provided, the value is first casted to the provided
+/// type before being stored (this is mainly intended for logicals whose value
+/// may be `i1` but needed to be stored as Fortran logicals).
+static fir::ExtendedValue
+placeScalarValueInMemory(fir::FirOpBuilder &builder, mlir::Location loc,
+                         const fir::ExtendedValue &exv,
+                         mlir::Type storageType) {
+  mlir::Value valBase = fir::getBase(exv);
+  if (fir::conformsWithPassByRef(valBase.getType()))
+    return exv;
+
+  assert(!fir::hasDynamicSize(storageType) &&
+         "only expect statically sized scalars to be by value");
+
+  // Since `a` is not itself a valid referent, determine its value and
+  // create a temporary location at the beginning of the function for
+  // referencing.
+  mlir::Value val = builder.createConvert(loc, storageType, valBase);
+  mlir::Value temp = builder.createTemporary(
+      loc, storageType,
+      llvm::ArrayRef<mlir::NamedAttribute>{
+          Fortran::lower::getAdaptToByRefAttr(builder)});
+  builder.create<fir::StoreOp>(loc, val, temp);
+  return fir::substBase(exv, temp);
+}
+
+// Copy a copy of scalar \p exv in a new temporary.
+static fir::ExtendedValue
+createInMemoryScalarCopy(fir::FirOpBuilder &builder, mlir::Location loc,
+                         const fir::ExtendedValue &exv) {
+  assert(exv.rank() == 0 && "input to scalar memory copy must be a scalar");
+  if (exv.getCharBox() != nullptr)
+    return fir::factory::CharacterExprHelper{builder, loc}.createTempFrom(exv);
+  if (fir::isDerivedWithLengthParameters(exv))
+    TODO(loc, "copy derived type with length parameters");
+  mlir::Type type = fir::unwrapPassByRefType(fir::getBase(exv).getType());
+  fir::ExtendedValue temp = builder.createTemporary(loc, type);
+  fir::factory::genScalarAssignment(builder, loc, temp, exv);
+  return temp;
+}
+
+/// Is this a variable wrapped in parentheses ?
+template <typename A>
+static bool isParenthesizedVariable(const A &) {
+  return false;
+}
+template <typename T>
+static bool isParenthesizedVariable(const Fortran::evaluate::Expr<T> &expr) {
+  using ExprVariant = decltype(Fortran::evaluate::Expr<T>::u);
+  using Parentheses = Fortran::evaluate::Parentheses<T>;
+  if constexpr (Fortran::common::HasMember<Parentheses, ExprVariant>) {
+    if (const auto *parentheses = std::get_if<Parentheses>(&expr.u))
+      return Fortran::evaluate::IsVariable(parentheses->left());
+    return false;
+  } else {
+    return std::visit([&](const auto &x) { return isParenthesizedVariable(x); },
+                      expr.u);
+  }
+}
+
 /// Is this a call to an elemental procedure with at least one array argument ?
 static bool
 isElementalProcWithArrayArgs(const Fortran::evaluate::ProcedureRef &procRef) {
@@ -1912,7 +1973,8 @@ public:
   /// Create a contiguous temporary array with the same shape,
   /// length parameters and type as mold. It is up to the caller to deallocate
   /// the temporary.
-  ExtValue genTempFromMold(const ExtValue &mold, llvm::StringRef tempName) {
+  ExtValue genArrayTempFromMold(const ExtValue &mold,
+                                llvm::StringRef tempName) {
     mlir::Type type = fir::dyn_cast_ptrOrBoxEleTy(fir::getBase(mold).getType());
     assert(type && "expected descriptor or memory type");
     mlir::Location loc = getLoc();
@@ -2170,25 +2232,6 @@ public:
     return call.getResult(0);
   }
 
-  /// Is this a variable wrapped in parentheses ?
-  template <typename A>
-  bool isParenthesizedVariable(const A &) {
-    return false;
-  }
-  template <typename T>
-  bool isParenthesizedVariable(const Fortran::evaluate::Expr<T> &expr) {
-    using ExprVariant = decltype(Fortran::evaluate::Expr<T>::u);
-    using Parentheses = Fortran::evaluate::Parentheses<T>;
-    if constexpr (Fortran::common::HasMember<Parentheses, ExprVariant>) {
-      if (const auto *parentheses = std::get_if<Parentheses>(&expr.u))
-        return Fortran::evaluate::IsVariable(parentheses->left());
-      return false;
-    } else {
-      return std::visit(
-          [&](const auto &x) { return isParenthesizedVariable(x); }, expr.u);
-    }
-  }
-
   /// Like genExtAddr, but ensure the address returned is a temporary even if \p
   /// expr is variable inside parentheses.
   ExtValue genTempExtAddr(const Fortran::lower::SomeExpr &expr) {
@@ -2275,7 +2318,7 @@ public:
                      CopyOutPairs &copyOutPairs,
                      llvm::Optional<mlir::Value> restrictCopyAtRuntime) {
     if (!restrictCopyAtRuntime) {
-      ExtValue temp = genTempFromMold(actualArg, ".copyinout");
+      ExtValue temp = genArrayTempFromMold(actualArg, ".copyinout");
       if (arg.mayBeReadByCall())
         genArrayCopy(temp, actualArg);
       copyOutPairs.emplace_back(CopyOutPair{
@@ -2291,7 +2334,7 @@ public:
             .genIfOp(loc, {addrType}, *restrictCopyAtRuntime,
                      /*withElseRegion=*/true)
             .genThen([&]() {
-              auto temp = genTempFromMold(actualArg, ".copyinout");
+              auto temp = genArrayTempFromMold(actualArg, ".copyinout");
               if (arg.mayBeReadByCall())
                 genArrayCopy(temp, actualArg);
               builder.create<fir::ResultOp>(loc, fir::getBase(temp));
@@ -2675,35 +2718,8 @@ public:
   }
   template <typename A>
   ExtValue genref(const A &a) {
-    ExtValue exv = genval(a);
-    mlir::Value valBase = fir::getBase(exv);
-    // Functions are always referent.
-    if (valBase.getType().template isa<mlir::FunctionType>() ||
-        fir::conformsWithPassByRef(valBase.getType()))
-      return exv;
-
-    // Since `a` is not itself a valid referent, determine its value and
-    // create a temporary location at the begining of the function for
-    // referencing.
-    mlir::Value val = valBase;
-    if constexpr (!Fortran::common::HasMember<
-                      A, Fortran::evaluate::TypelessExpression>) {
-      if constexpr (A::Result::category ==
-                    Fortran::common::TypeCategory::Logical) {
-        // Ensure logicals that may have been lowered to `i1` are cast to the
-        // Fortran logical type before being placed in memory.
-        mlir::Type type =
-            converter.genType(A::Result::category, A::Result::kind);
-        val = builder.createConvert(getLoc(), type, valBase);
-      }
-    }
-    mlir::FuncOp func = builder.getFunction();
-    auto initPos = builder.saveInsertionPoint();
-    builder.setInsertionPointToStart(&func.front());
-    auto mem = builder.create<fir::AllocaOp>(getLoc(), val.getType());
-    builder.restoreInsertionPoint(initPos);
-    builder.create<fir::StoreOp>(getLoc(), val, mem);
-    return fir::substBase(exv, mem.getResult());
+    mlir::Type storageType = converter.genType(toEvExpr(a));
+    return placeScalarValueInMemory(builder, getLoc(), genval(a), storageType);
   }
 
   template <typename A, template <typename> typename T,
@@ -4049,6 +4065,36 @@ private:
     }
   }
 
+  /// Lower an elemental function array argument. This ensures array
+  /// sub-expressions that are not variables and must be passed by address
+  /// are lowered by value and placed in memory.
+  template <typename A>
+  CC genElementalArgument(const A &x) {
+    // Ensure the returned element is in memory if this is what was requested.
+    if ((semant == ConstituentSemantics::RefOpaque ||
+         semant == ConstituentSemantics::DataAddr ||
+         semant == ConstituentSemantics::ByValueArg)) {
+      if (!Fortran::evaluate::IsVariable(x)) {
+        PushSemantics(ConstituentSemantics::DataValue);
+        CC cc = genarr(x);
+        mlir::Location loc = getLoc();
+        if (isParenthesizedVariable(x)) {
+          // Parenthesised variables are lowered to a reference to the variable
+          // storage. When passing it as an argument, a copy must be passed.
+          return [=](IterSpace iters) -> ExtValue {
+            return createInMemoryScalarCopy(builder, loc, cc(iters));
+          };
+        }
+        mlir::Type storageType =
+            fir::unwrapSequenceType(converter.genType(toEvExpr(x)));
+        return [=](IterSpace iters) -> ExtValue {
+          return placeScalarValueInMemory(builder, loc, cc(iters), storageType);
+        };
+      }
+    }
+    return genarr(x);
+  }
+
   // A procedure reference to a Fortran elemental intrinsic procedure.
   CC genElementalIntrinsicProcRef(
       const Fortran::evaluate::ProcedureRef &procRef,
@@ -4070,7 +4116,7 @@ private:
       } else if (!argLowering) {
         // No argument lowering instruction, lower by value.
         PushSemantics(ConstituentSemantics::RefTransparent);
-        auto lambda = genarr(*expr);
+        auto lambda = genElementalArgument(*expr);
         operands.emplace_back([=](IterSpace iters) { return lambda(iters); });
       } else {
         // Ad-hoc argument lowering handling.
@@ -4078,18 +4124,18 @@ private:
                                                          dummy.name)) {
         case Fortran::lower::LowerIntrinsicArgAs::Value: {
           PushSemantics(ConstituentSemantics::RefTransparent);
-          auto lambda = genarr(*expr);
+          auto lambda = genElementalArgument(*expr);
           operands.emplace_back([=](IterSpace iters) { return lambda(iters); });
         } break;
         case Fortran::lower::LowerIntrinsicArgAs::Addr: {
           // Note: assume does not have Fortran VALUE attribute semantics.
           PushSemantics(ConstituentSemantics::RefOpaque);
-          auto lambda = genarr(*expr);
+          auto lambda = genElementalArgument(*expr);
           operands.emplace_back([=](IterSpace iters) { return lambda(iters); });
         } break;
         case Fortran::lower::LowerIntrinsicArgAs::Box: {
           PushSemantics(ConstituentSemantics::RefOpaque);
-          auto lambda = genarr(*expr);
+          auto lambda = genElementalArgument(*expr);
           operands.emplace_back([=](IterSpace iters) {
             return builder.createBox(loc, lambda(iters));
           });
@@ -4153,13 +4199,13 @@ private:
       case PassBy::Value: {
         // True pass-by-value semantics.
         PushSemantics(ConstituentSemantics::RefTransparent);
-        operands.emplace_back(genarr(*expr));
+        operands.emplace_back(genElementalArgument(*expr));
       } break;
       case PassBy::BaseAddressValueAttribute: {
         // VALUE attribute or pass-by-reference to a copy semantics. (byval*)
         if (isArray(*expr)) {
           PushSemantics(ConstituentSemantics::ByValueArg);
-          operands.emplace_back(genarr(*expr));
+          operands.emplace_back(genElementalArgument(*expr));
         } else {
           // Store scalar value in a temp to fulfill VALUE attribute.
           mlir::Value val = fir::getBase(asScalar(*expr));
@@ -4175,7 +4221,7 @@ private:
       case PassBy::BaseAddress: {
         if (isArray(*expr)) {
           PushSemantics(ConstituentSemantics::RefOpaque);
-          operands.emplace_back(genarr(*expr));
+          operands.emplace_back(genElementalArgument(*expr));
         } else {
           ExtValue exv = asScalarRef(*expr);
           operands.emplace_back([=](IterSpace iters) { return exv; });
@@ -4183,8 +4229,8 @@ private:
       } break;
       case PassBy::CharBoxValueAttribute: {
         if (isArray(*expr)) {
-          PushSemantics(ConstituentSemantics::RefOpaque);
-          auto lambda = genarr(*expr);
+          PushSemantics(ConstituentSemantics::DataValue);
+          auto lambda = genElementalArgument(*expr);
           operands.emplace_back([=](IterSpace iters) {
             return fir::factory::CharacterExprHelper{builder, loc}
                 .createTempFrom(lambda(iters));
@@ -4198,7 +4244,7 @@ private:
       } break;
       case PassBy::BoxChar: {
         PushSemantics(ConstituentSemantics::RefOpaque);
-        operands.emplace_back(genarr(*expr));
+        operands.emplace_back(genElementalArgument(*expr));
       } break;
       case PassBy::AddressAndLength:
         // PassBy::AddressAndLength is only used for character results. Results
