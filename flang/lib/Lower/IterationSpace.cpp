@@ -648,11 +648,11 @@ private:
     return found;
   }
   RT find(const Fortran::evaluate::Triplet &x) {
-    if (x.lower().has_value())
-      (void)find(*x.lower());
-    if (x.upper().has_value())
-      (void)find(*x.upper());
-    return find(x.stride());
+    if (const auto *lower = x.GetLower())
+      (void)find(*lower);
+    if (const auto *upper = x.GetUpper())
+      (void)find(*upper);
+    return find(x.GetStride());
   }
   RT find(const Fortran::evaluate::IndirectSubscriptIntegerExpr &x) {
     return find(x.value());
