@@ -6595,7 +6595,7 @@ void Fortran::lower::createArrayLoads(
     esp.resetInnerArgs();
     esp.bindLoad(base, load);
   }
-  for (auto &base : esp.rhsBases[counter])
+  for (const auto &base : esp.rhsBases[counter])
     esp.bindLoad(base, std::visit(genLoad, base));
 }
 
