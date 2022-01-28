@@ -2596,9 +2596,19 @@ public:
               [&](const fir::CharArrayBoxValue &x) {
                 return helper.createEmbox(x);
               },
-              [&](const auto &) -> mlir::Value {
-                fir::emitFatalError(
-                    loc, "internal error: actual argument is not a character");
+              [&](const auto &x) -> mlir::Value {
+                // Fortran allows an actual argument of a completely different
+                // type to be passed to a procedure expecting a CHARACTER in the
+                // dummy argument position. When this happens, the data pointer
+                // argument is simply assumed to point to CHARACTER data and the
+                // LEN argument used is garbage. Simulate this behavior by
+                // free-casting the base address to be a !fir.char reference and
+                // setting the LEN argument to undefined. What could go wrong?
+                auto dataPtr = fir::getBase(x);
+                assert(!dataPtr.getType().template isa<fir::BoxType>());
+                return builder.convertWithSemantics(
+                    loc, argTy, dataPtr,
+                    /*allowCharacterConversion=*/true);
               });
           caller.placeInput(arg, boxChar);
         }

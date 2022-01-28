@@ -265,7 +265,7 @@ fir::GlobalOp fir::FirOpBuilder::createGlobal(
 mlir::Value
 fir::FirOpBuilder::convertWithSemantics(mlir::Location loc, mlir::Type toTy,
                                         mlir::Value val,
-                                        bool allowConversionsWithCharacters) {
+                                        bool allowCharacterConversion) {
   assert(toTy && "store location must be typed");
   auto fromTy = val.getType();
   if (fromTy == toTy)
@@ -287,7 +287,7 @@ fir::FirOpBuilder::convertWithSemantics(mlir::Location loc, mlir::Type toTy,
     auto rp = helper.extractComplexPart(val, /*isImagPart=*/false);
     return createConvert(loc, toTy, rp);
   }
-  if (allowConversionsWithCharacters) {
+  if (allowCharacterConversion) {
     if (fromTy.isa<fir::BoxCharType>()) {
       // Extract the address of the character string and pass it
       fir::factory::CharacterExprHelper charHelper{*this, loc};

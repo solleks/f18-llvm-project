@@ -73,7 +73,7 @@ public:
   /// after type conversion and the imaginary part is zero.
   mlir::Value convertWithSemantics(mlir::Location loc, mlir::Type toTy,
                                    mlir::Value val,
-                                   bool allowConversionsWithCharacters = false);
+                                   bool allowCharacterConversion = false);
 
   /// Get the entry block of the current Function
   mlir::Block *getEntryBlock() { return &getFunction().front(); }
