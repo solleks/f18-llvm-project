@@ -2643,18 +2643,16 @@ mlir::Value IntrinsicLibrary::genIshftc(mlir::Type resultType,
 fir::ExtendedValue
 IntrinsicLibrary::genLen(mlir::Type resultType,
                          llvm::ArrayRef<fir::ExtendedValue> args) {
-  // Optional KIND argument reflected in result type.
-  assert(args.size() == 1); // args.size() != 2
-  mlir::Value len;
-  if (const fir::CharBoxValue *charBox = args[0].getCharBox()) {
-    len = charBox->getLen();
-  } else if (const fir::CharBoxValue *charBoxArray = args[0].getCharBox()) {
-    len = charBoxArray->getLen();
-  } else {
-    fir::factory::CharacterExprHelper helper{builder, loc};
-    len = helper.createUnboxChar(fir::getBase(args[0])).second;
-  }
-
+  // Optional KIND argument reflected in result type and otherwise ignored.
+  assert(args.size() == 1 || args.size() == 2);
+  mlir::Value len = args[0].match(
+      [](const fir::CharBoxValue &box) { return box.getLen(); },
+      [](const fir::CharArrayBoxValue &box) { return box.getLen(); },
+      [&](const auto &) {
+        return fir::factory::CharacterExprHelper(builder, loc)
+            .createUnboxChar(fir::getBase(args[0]))
+            .second;
+      });
   return builder.createConvert(loc, resultType, len);
 }
 
@@ -2662,13 +2660,13 @@ IntrinsicLibrary::genLen(mlir::Type resultType,
 fir::ExtendedValue
 IntrinsicLibrary::genLenTrim(mlir::Type resultType,
                              llvm::ArrayRef<fir::ExtendedValue> args) {
-  // Optional KIND argument reflected in result type.
-  assert(args.size() >= 1);
-  fir::factory::CharacterExprHelper helper{builder, loc};
+  // Optional KIND argument reflected in result type and otherwise ignored.
+  assert(args.size() == 1 || args.size() == 2);
   const fir::CharBoxValue *charBox = args[0].getCharBox();
   if (!charBox)
     TODO(loc, "character array len_trim");
-  auto len = helper.createLenTrim(*charBox);
+  auto len =
+      fir::factory::CharacterExprHelper(builder, loc).createLenTrim(*charBox);
   return builder.createConvert(loc, resultType, len);
 }
 
