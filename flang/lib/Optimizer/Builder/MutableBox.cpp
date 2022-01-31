@@ -14,6 +14,7 @@
 #include "flang/Lower/Todo.h"
 #include "flang/Optimizer/Builder/Character.h"
 #include "flang/Optimizer/Builder/FIRBuilder.h"
+#include "flang/Optimizer/Builder/Runtime/Stop.h"
 #include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Optimizer/Dialect/FIROpsSupport.h"
 #include "flang/Optimizer/Support/FatalError.h"
@@ -244,11 +245,9 @@ private:
         // unknown or constant lengths.
         auto bt = box.getBaseTy();
         auto addrTy = addr.getType();
-        auto type = addrTy.isa<fir::HeapType>()
-                        ? fir::HeapType::get(bt)
-                        : addrTy.isa<fir::PointerType>()
-                              ? fir::PointerType::get(bt)
-                              : builder.getRefType(bt);
+        auto type = addrTy.isa<fir::HeapType>()      ? fir::HeapType::get(bt)
+                    : addrTy.isa<fir::PointerType>() ? fir::PointerType::get(bt)
+                                                     : builder.getRefType(bt);
         cleanedAddr = builder.createConvert(loc, type, addr);
         if (charTy.getLen() == fir::CharacterType::unknownLen())
           cleanedLengths.append(lengths.begin(), lengths.end());
@@ -748,9 +747,10 @@ fir::factory::genReallocIfNeeded(fir::FirOpBuilder &builder, mlir::Location loc,
             auto trueValue = builder.createBool(loc, true);
             // The box is not yet allocated, simply allocate it.
             if (shape.empty() && box.rank() != 0) {
-              // TODO:
-              // runtime error: right hand side must be allocated if right hand
-              // side is a scalar and the box is an array.
+              // See 10.2.1.3 p3.
+              fir::runtime::genCrash(builder, loc,
+                                     "array left hand side must be allocated "
+                                     "when the right hand side is a scalar");
               builder.create<fir::ResultOp>(loc,
                                             mlir::ValueRange{trueValue, addr});
             } else {
