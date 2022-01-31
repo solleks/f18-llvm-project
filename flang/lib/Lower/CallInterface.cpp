@@ -866,9 +866,9 @@ private:
         proc.procedure.value();
     mlir::Type funcType =
         getDummyProcedureTypeImpl(&proc.procedure.value(), interface.converter);
-    llvm::Optional<Fortran::evaluate::DynamicType> resulType =
+    llvm::Optional<Fortran::evaluate::DynamicType> resultTy =
         getResultDynamicType(procedure);
-    if (resulType && mustPassLengthWithDummyProcedure(procedure)) {
+    if (resultTy && mustPassLengthWithDummyProcedure(procedure)) {
       // The result length of dummy procedures that are character functions must
       // be passed so that the dummy procedure can be called if it has assumed
       // length on the callee side.

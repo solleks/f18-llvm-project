@@ -161,6 +161,17 @@ subroutine test6(c, d, e)
   c = (/ d, e /)
 end subroutine test6
 
+! CHECK-LABEL: func @_QPtest7(
+! CHECK: %[[i:.*]] = fir.convert %{{.*}} : (index) -> i8
+! CHECK: %[[und:.*]] = fir.undefined !fir.char<1>
+! CHECK: %[[scalar:.*]] = fir.insert_value %[[und]], %[[i]], [0 : index] : (!fir.char<1>, i8) -> !fir.char<1>
+! CHECK: ^bb{{[0-9]+}}(%{{.*}}: !fir.heap<!fir.char<1>>):  // 2 preds
+! CHECK: fir.store %[[scalar]] to %{{.*}} : !fir.ref<!fir.char<1>>
+subroutine test7(a, n)
+  character(1) :: a(n)
+  a = (/ (CHAR(i), i=1,n) /)
+end subroutine test7
+
 ! CHECK: fir.global internal @_QQro.3xr4.{{.*}}(dense<[1.000000e+00, 2.000000e+00, 3.000000e+00]> : tensor<3xf32>) constant : !fir.array<3xf32>
 
 ! CHECK: fir.global internal @_QQro.4xi4.{{.*}}(dense<[6, 7, 42, 9]> : tensor<4xi32>) constant : !fir.array<4xi32>

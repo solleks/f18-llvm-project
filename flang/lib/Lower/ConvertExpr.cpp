@@ -5363,18 +5363,6 @@ private:
   // Array construction
   //===--------------------------------------------------------------------===//
 
-  // Lower the expr cases in an ac-value-list.
-  template <typename A>
-  std::pair<ExtValue, bool>
-  genArrayCtorInitializer(const Fortran::evaluate::Expr<A> &x, mlir::Type,
-                          mlir::Value, mlir::Value, mlir::Value,
-                          Fortran::lower::StatementContext &stmtCtx) {
-    if (isArray(x))
-      return {lowerNewArrayExpression(converter, symMap, stmtCtx, toEvExpr(x)),
-              /*needCopy=*/true};
-    return {asScalar(x), /*needCopy=*/true};
-  }
-
   /// Target agnostic computation of the size of an element in the array.
   /// Returns the size in bytes with type `index` or a null Value if the element
   /// size is not constant.
@@ -5514,8 +5502,8 @@ private:
       if (fir::hasDynamicSize(eleTy)) {
         if (auto charTy = eleTy.dyn_cast<fir::CharacterType>()) {
           // Scale a simple pointer using dynamic length and offset values.
-          fir::CharacterType chTy = fir::CharacterType::getSingleton(
-              charTy.getContext(), charTy.getFKind());
+          auto chTy = fir::CharacterType::getSingleton(charTy.getContext(),
+                                                       charTy.getFKind());
           refTy = builder.getRefType(chTy);
           mlir::Type toTy = builder.getRefType(builder.getVarLenSeqTy(chTy));
           buff = builder.createConvert(loc, toTy, buff);
@@ -5554,40 +5542,55 @@ private:
       builder.create<fir::StoreOp>(loc, endOff, buffPos);
     };
 
+    // Copy a trivial scalar value into the buffer.
+    auto doTrivialScalar = [&](const ExtValue &v, mlir::Value len = {}) {
+      // Increment the buffer position.
+      auto plusOne = builder.create<mlir::arith::AddIOp>(loc, off, one);
+
+      // Grow the buffer as needed.
+      mem = growBuffer(mem, plusOne, limit, buffSize, eleSz);
+
+      // Store the element in the buffer.
+      mlir::Value buff =
+          builder.createConvert(loc, fir::HeapType::get(resTy), mem);
+      auto buffi = builder.create<fir::CoordinateOp>(loc, eleRefTy, buff,
+                                                     mlir::ValueRange{off});
+      fir::factory::genScalarAssignment(
+          builder, loc,
+          [&]() -> ExtValue {
+            if (len)
+              return fir::CharBoxValue(buffi, len);
+            return buffi;
+          }(),
+          v);
+      builder.create<fir::StoreOp>(loc, plusOne, buffPos);
+    };
+
     // Copy the value.
     exv.match(
-        [&](const mlir::Value &v) {
-          // Increment the buffer position.
-          auto plusOne = builder.create<mlir::arith::AddIOp>(loc, off, one);
-
-          // Grow the buffer as needed.
-          mem = growBuffer(mem, plusOne, limit, buffSize, eleSz);
-
-          // Store the element in the buffer.
-          mlir::Value buff =
-              builder.createConvert(loc, fir::HeapType::get(resTy), mem);
-          auto buffi = builder.create<fir::CoordinateOp>(loc, eleRefTy, buff,
-                                                         mlir::ValueRange{off});
-          fir::factory::genScalarAssignment(builder, loc, buffi, v);
-          builder.create<fir::StoreOp>(loc, plusOne, buffPos);
-        },
+        [&](mlir::Value) { doTrivialScalar(exv); },
         [&](const fir::CharBoxValue &v) {
-          // Increment the buffer position.
-          auto plusOne = builder.create<mlir::arith::AddIOp>(loc, off, one);
+          auto buffer = v.getBuffer();
+          if (fir::isa_char(buffer.getType())) {
+            doTrivialScalar(exv, eleSz);
+          } else {
+            // Increment the buffer position.
+            auto plusOne = builder.create<mlir::arith::AddIOp>(loc, off, one);
 
-          // Grow the buffer as needed.
-          mem = growBuffer(mem, plusOne, limit, buffSize, eleSz);
+            // Grow the buffer as needed.
+            mem = growBuffer(mem, plusOne, limit, buffSize, eleSz);
 
-          // Store the element in the buffer.
-          mlir::Value buff =
-              builder.createConvert(loc, fir::HeapType::get(resTy), mem);
-          mlir::Value buffi = computeCoordinate(buff, off);
-          llvm::SmallVector<mlir::Value> args = fir::runtime::createArguments(
-              builder, loc, memcpyType(), buffi, v.getAddr(), eleSz,
-              /*volatile=*/builder.createBool(loc, false));
-          createCallMemcpy(args);
+            // Store the element in the buffer.
+            mlir::Value buff =
+                builder.createConvert(loc, fir::HeapType::get(resTy), mem);
+            mlir::Value buffi = computeCoordinate(buff, off);
+            llvm::SmallVector<mlir::Value> args = fir::runtime::createArguments(
+                builder, loc, memcpyType(), buffi, v.getAddr(), eleSz,
+                /*volatile=*/builder.createBool(loc, false));
+            createCallMemcpy(args);
 
-          builder.create<fir::StoreOp>(loc, plusOne, buffPos);
+            builder.create<fir::StoreOp>(loc, plusOne, buffPos);
+          }
         },
         [&](const fir::ArrayBoxValue &v) { doAbstractArray(v); },
         [&](const fir::CharArrayBoxValue &v) { doAbstractArray(v); },
@@ -5595,6 +5598,18 @@ private:
           TODO(loc, "unhandled array constructor expression");
         });
     return mem;
+  }
+
+  // Lower the expr cases in an ac-value-list.
+  template <typename A>
+  std::pair<ExtValue, bool>
+  genArrayCtorInitializer(const Fortran::evaluate::Expr<A> &x, mlir::Type,
+                          mlir::Value, mlir::Value, mlir::Value,
+                          Fortran::lower::StatementContext &stmtCtx) {
+    if (isArray(x))
+      return {lowerNewArrayExpression(converter, symMap, stmtCtx, toEvExpr(x)),
+              /*needCopy=*/true};
+    return {asScalar(x), /*needCopy=*/true};
   }
 
   // Lower an ac-implied-do in an ac-value-list.

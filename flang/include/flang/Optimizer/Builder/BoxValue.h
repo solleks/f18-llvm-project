@@ -86,6 +86,7 @@ public:
   mlir::Value getBuffer() const { return getAddr(); }
 
   mlir::Value getLen() const { return len; }
+
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &,
                                        const CharBoxValue &);
   LLVM_DUMP_METHOD void dump() const { llvm::errs() << *this; }
@@ -438,10 +439,7 @@ public:
         auto type = b->getType();
         if (type.template isa<fir::BoxCharType>())
           fir::emitFatalError(b->getLoc(), "BoxChar should be unboxed");
-        if (auto refType = type.template dyn_cast<fir::ReferenceType>())
-          type = refType.getEleTy();
-        if (auto seqType = type.template dyn_cast<fir::SequenceType>())
-          type = seqType.getEleTy();
+        type = fir::unwrapSequenceType(fir::unwrapRefType(type));
         if (fir::isa_char(type))
           fir::emitFatalError(b->getLoc(),
                               "character buffer should be in CharBoxValue");
