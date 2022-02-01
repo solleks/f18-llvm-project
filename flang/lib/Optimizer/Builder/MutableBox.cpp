@@ -245,9 +245,11 @@ private:
         // unknown or constant lengths.
         auto bt = box.getBaseTy();
         auto addrTy = addr.getType();
-        auto type = addrTy.isa<fir::HeapType>()      ? fir::HeapType::get(bt)
-                    : addrTy.isa<fir::PointerType>() ? fir::PointerType::get(bt)
-                                                     : builder.getRefType(bt);
+        auto type = addrTy.isa<fir::HeapType>()
+                        ? fir::HeapType::get(bt)
+                        : addrTy.isa<fir::PointerType>()
+                              ? fir::PointerType::get(bt)
+                              : builder.getRefType(bt);
         cleanedAddr = builder.createConvert(loc, type, addr);
         if (charTy.getLen() == fir::CharacterType::unknownLen())
           cleanedLengths.append(lengths.begin(), lengths.end());
@@ -748,9 +750,10 @@ fir::factory::genReallocIfNeeded(fir::FirOpBuilder &builder, mlir::Location loc,
             // The box is not yet allocated, simply allocate it.
             if (shape.empty() && box.rank() != 0) {
               // See 10.2.1.3 p3.
-              fir::runtime::genCrash(builder, loc,
-                                     "array left hand side must be allocated "
-                                     "when the right hand side is a scalar");
+              fir::runtime::genReportFatalUserError(
+                  builder, loc,
+                  "array left hand side must be allocated when the right hand "
+                  "side is a scalar");
               builder.create<fir::ResultOp>(loc,
                                             mlir::ValueRange{trueValue, addr});
             } else {

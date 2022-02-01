@@ -22,13 +22,14 @@ void fir::runtime::genExit(fir::FirOpBuilder &builder, mlir::Location loc,
   builder.create<fir::CallOp>(loc, exitFunc, args);
 }
 
-void fir::runtime::genCrash(fir::FirOpBuilder &builder, mlir::Location loc,
-                            const std::string &message) {
+void fir::runtime::genReportFatalUserError(fir::FirOpBuilder &builder,
+                                           mlir::Location loc,
+                                           llvm::StringRef message) {
   mlir::FuncOp crashFunc =
       fir::runtime::getRuntimeFunc<mkRTKey(Crash)>(loc, builder);
   mlir::FunctionType funcTy = crashFunc.getType();
   mlir::Value msgVal = fir::getBase(
-      fir::factory::createStringLiteral(builder, loc, message + '\0'));
+      fir::factory::createStringLiteral(builder, loc, message.str() + '\0'));
   mlir::Value sourceLine =
       fir::factory::locationToLineNo(builder, loc, funcTy.getInput(2));
   mlir::Value sourceFile = fir::factory::locationToFilename(builder, loc);

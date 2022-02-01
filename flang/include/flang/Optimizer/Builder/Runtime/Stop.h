@@ -8,7 +8,10 @@
 
 #ifndef FORTRAN_OPTIMIZER_BUILDER_RUNTIME_STOP_H
 #define FORTRAN_OPTIMIZER_BUILDER_RUNTIME_STOP_H
-#include <string>
+
+namespace llvm {
+class StringRef;
+}
 
 namespace mlir {
 class Value;
@@ -26,7 +29,8 @@ void genExit(fir::FirOpBuilder &, mlir::Location, mlir::Value status);
 
 /// Generate call to crash the program with an error message when detecting
 /// an invalid situation at runtime.
-void genCrash(fir::FirOpBuilder &, mlir::Location, const std::string &message);
+void genReportFatalUserError(fir::FirOpBuilder &, mlir::Location,
+                             llvm::StringRef message);
 
 } // namespace fir::runtime
 #endif // FORTRAN_OPTIMIZER_BUILDER_RUNTIME_STOP_H
