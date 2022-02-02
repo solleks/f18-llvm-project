@@ -26,6 +26,7 @@ add_flang_library(FortranLower
   DEPENDS
   FIRBuilder
   FIRDialect
+  FIROptCodeGenPassIncGen
   FIRSupport
   FIRTransforms
   ${dialect_libs}
