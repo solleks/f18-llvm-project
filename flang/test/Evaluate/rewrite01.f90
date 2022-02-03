@@ -76,4 +76,27 @@ subroutine lbound_test(x, n, m)
   !CHECK: PRINT *, 1_4
   print *, lbound(returns_array_3(), dim=1)
 end subroutine
+
+subroutine len_test(a,b, c, d)
+  character(*) :: a, b
+  external b
+  character(10) :: c, d
+  external d
+
+  !CHECK: PRINT *, len(a)
+  print *, len(a)
+  !CHECK: PRINT *, 5_4
+  print *, len(a(1:5))
+  !CHECK: PRINT *, len(b(a))
+  print *, len(b(a))
+  !CHECK: PRINT *, 10_4
+  print *, len(c)
+  !CHECK: PRINT *, len(c(int(i,kind=8):int(j,kind=8)))
+  print *, len(c(i:j))
+  !CHECK: PRINT *, 5_4
+  print *, len(c(1:5))
+  !CHECK: PRINT *, 10_4
+  print *, len(d(c))
+end subroutine len_test
+
 end module
