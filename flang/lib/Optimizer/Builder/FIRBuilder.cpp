@@ -302,10 +302,18 @@ fir::FirOpBuilder::convertWithSemantics(mlir::Location loc, mlir::Type toTy,
       // argument in characters and use it as the length of the string
       auto refType = getRefType(boxType.getEleTy());
       mlir::Value charBase = createConvert(loc, refType, val);
-      mlir::Value unknownLen = this->create<fir::UndefOp>(loc, getIndexType());
+      mlir::Value unknownLen = create<fir::UndefOp>(loc, getIndexType());
       fir::factory::CharacterExprHelper charHelper{*this, loc};
       return charHelper.createEmboxChar(charBase, unknownLen);
     }
+  }
+  if (fir::isa_ref_type(toTy) && fir::isa_box_type(fromTy)) {
+    // Call is expecting a raw data pointer, not a box. Get the data pointer out
+    // of the box and pass that.
+    assert((fir::unwrapRefType(toTy) ==
+                fir::unwrapRefType(fir::unwrapPassByRefType(fromTy)) &&
+            "element types expected to match"));
+    return create<fir::BoxAddrOp>(loc, toTy, val);
   }
 
   return createConvert(loc, toTy, val);
