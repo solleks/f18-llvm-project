@@ -303,7 +303,7 @@ public:
                            mlir::StandardOpsDialect>();
 
     // apply the patterns
-    if (transformWhileLoop) {
+    if (transformIterateWhile) {
       patterns.insert<CfgIterWhileConv>(context, forceLoopToExecuteOnce);
       target.addIllegalOp<IterWhileOp>();
     }
@@ -315,7 +315,7 @@ public:
       patterns.insert<CfgIfConv>(context, forceLoopToExecuteOnce);
       target.addIllegalOp<IfOp>();
     }
-    bool transformAll = transformWhileLoop && transformDoLoop && transformIf;
+    bool transformAll = transformIterateWhile && transformDoLoop && transformIf;
     if (transformAll) {
       target.addIllegalOp<ResultOp>();
     }
