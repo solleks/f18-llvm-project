@@ -148,7 +148,16 @@ def CFGConversion : FunctionPass<"cfg-conversion"> {
   let options = [
     Option<"forceLoopToExecuteOnce", "always-execute-loop-body", "bool",
            /*default=*/"false",
-           "force the body of a loop to execute at least once">
+           "force the body of a loop to execute at least once">,
+    Option<"transformDoLoop", "transform-do-loop", "bool",
+           /*default=*/"true",
+           "apply the transformation the do loops">,
+    Option<"transformIf", "transform-if", "bool",
+           /*default=*/"true",
+           "apply transformation on if statments">,
+    Option<"transformWhileLoop", "transform-while-loop", "bool",
+           /*default=*/"true",
+           "apply transformation on while loops">
   ];
 }
 
