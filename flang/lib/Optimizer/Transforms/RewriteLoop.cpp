@@ -297,15 +297,28 @@ public:
   void runOnFunction() override {
     auto *context = &getContext();
     mlir::OwningRewritePatternList patterns(context);
-    patterns.insert<CfgLoopConv, CfgIfConv, CfgIterWhileConv>(
-        context, forceLoopToExecuteOnce);
     mlir::ConversionTarget target(*context);
     target.addLegalDialect<mlir::AffineDialect, FIROpsDialect,
                            mlir::arith::ArithmeticDialect,
                            mlir::StandardOpsDialect>();
 
     // apply the patterns
-    target.addIllegalOp<ResultOp, DoLoopOp, IfOp, IterWhileOp>();
+    if (transformWhileLoop) {
+      patterns.insert<CfgIterWhileConv>(context, forceLoopToExecuteOnce);
+      target.addIllegalOp<IterWhileOp>();
+    }
+    if (transformDoLoop) {
+      patterns.insert<CfgLoopConv>(context, forceLoopToExecuteOnce);
+      target.addIllegalOp<DoLoopOp>();
+    }
+    if (transformIf) {
+      patterns.insert<CfgIfConv>(context, forceLoopToExecuteOnce);
+      target.addIllegalOp<IfOp>();
+    }
+    bool transformAll = transformWhileLoop && transformDoLoop && transformIf;
+    if (transformAll) {
+      target.addIllegalOp<ResultOp>();
+    }
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
     if (mlir::failed(mlir::applyPartialConversion(getFunction(), target,
                                                   std::move(patterns)))) {
