@@ -1,8 +1,8 @@
 // RUN: rm -rf %t && mkdir %t
 // RUN: split-file %s %t
 // RUN: fir-opt %t/all.fir --cfg-conversion | FileCheck %t/all.fir
-// RUN: fir-opt %t/loop.fir --cfg-conversion="transform-if=0 transform-while-loop=0" | FileCheck %t/loop.fir
-// RUN: fir-opt %t/if.fir --cfg-conversion="transform-while-loop=0" | FileCheck %t/if.fir
+// RUN: fir-opt %t/loop.fir --cfg-conversion="transform-if=0 transform-iterate-while=0" | FileCheck %t/loop.fir
+// RUN: fir-opt %t/if.fir --cfg-conversion="transform-iterate-while=0" | FileCheck %t/if.fir
 // RUN: fir-opt %t/while.fir --cfg-conversion="transform-do-loop=0 transform-if=0" | FileCheck %t/while.fir
 
 //--- all.fir

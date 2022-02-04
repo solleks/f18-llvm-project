@@ -155,7 +155,7 @@ def CFGConversion : FunctionPass<"cfg-conversion"> {
     Option<"transformIf", "transform-if", "bool",
            /*default=*/"true",
            "apply transformation on if statments">,
-    Option<"transformWhileLoop", "transform-while-loop", "bool",
+    Option<"transformIterateWhile", "transform-iterate-while", "bool",
            /*default=*/"true",
            "apply transformation on while loops">
   ];
