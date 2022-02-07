@@ -1961,7 +1961,8 @@ def fir_SliceOp : fir_Op<"slice", [NoSideEffect, AttrSizedOperandSegments]> {
     specified.  The extent must be nonnegative and the stride must not be zero.
 
     ```mlir
-      %d = fir.slice %lo, %hi, %step : (index, index, index) -> !fir.slice<1>
+      %d = fir.slice %lo, %hi, %step :
+          (index, index, index) -> !fir.slice<1>
     ```
 
     To support generalized slicing of Fortran's dynamic derived types, a slice
@@ -1970,7 +1971,8 @@ def fir_SliceOp : fir_Op<"slice", [NoSideEffect, AttrSizedOperandSegments]> {
 
     ```mlir
       %fld = fir.field_index component, !fir.type<t{...component:ct...}>
-      %d = fir.slice %lo, %hi, %step path %fld : (index, index, index, !fir.field) -> !fir.slice<1>
+      %d = fir.slice %lo, %hi, %step path %fld :
+          (index, index, index, !fir.field) -> !fir.slice<1>
     ```
 
     Projections of `!fir.char` type can be further narrowed to invariant
