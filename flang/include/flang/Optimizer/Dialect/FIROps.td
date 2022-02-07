@@ -1532,7 +1532,14 @@ def fir_ArrayAccessOp : fir_Op<"array_access", [AttrSizedOperandSegments,
   let summary = "Fetch the reference of an element of an array value";
 
   let description = [{
-    Fetch the memory reference of an element in an array value.
+    The `array_access` provides a reference to a single element from an array
+    value. This is *not* a view in the immutable array, otherwise it couldn't
+    be stored to. It can be see as a logical copy of the element and its
+    position in the array. This reference can be written to and modified without
+    changing the original array.
+
+    The `array_access` operation is used to fetch the memory reference of an
+    element in an array value.
 
     ```fortran
       real :: a(n,m)
@@ -1554,7 +1561,16 @@ def fir_ArrayAccessOp : fir_Op<"array_access", [AttrSizedOperandSegments,
       %1 = fir.array_access %v, %i, %j : (!fir.array<?x?xf32>, index, index) -> !fir.ref<f32>
     ```
 
-    It is only possible to use `array_access` on an `array_load` result value.
+    It is only possible to use `array_access` on an `array_load` result value or
+    a value that can be trace back transitively to an `array_load` as the
+    dominating source. Other array operation such as `array_amend` can be in
+    between.
+
+    TODO: The above restriction is not enforced. The design of the operation
+    might need to be revisited to avoid such restructions.
+
+    More information about `array_access` and other array operations can be
+    found in flang/docs/FIRArrayOperations.md.
   }];
 
   let arguments = (ins
@@ -1577,8 +1593,10 @@ def fir_ArrayAmendOp : fir_Op<"array_amend", [NoSideEffect]> {
   let summary = "Mark an array value as having been changed by reference.";
 
   let description = [{
-    Marks an array value as having been changed via a reference. The reference
-    into the array value is obtained via an fir.array_access op.
+    The `array_amend` operation marks an array value as having been changed via
+    a reference obtained by an `array_access`. It acts as a logical transaction
+    log that is used to merge the final result back with an `array_merge_store`
+    operation.
 
     ```mlir
       // fetch the value of one of the array value's elements
@@ -1588,6 +1606,9 @@ def fir_ArrayAmendOp : fir_Op<"array_amend", [NoSideEffect]> {
       // mark the array value
       %new_v = fir.array_amend %v, %2 : (!fir.array<?x?xT>, !fir.ref<T>) -> !fir.array<?x?xT>
     ```
+    
+    More information about `array_amend` and other array operations can be
+    found in flang/docs/FIRArrayOperations.md.
   }];
 
   let arguments = (ins
