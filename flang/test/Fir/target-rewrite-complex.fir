@@ -2,6 +2,7 @@
 // RUN: fir-opt --target-rewrite="target=x86_64-unknown-linux-gnu" %s | FileCheck %s --check-prefix=X64
 // RUN: fir-opt --target-rewrite="target=aarch64-unknown-linux-gnu" %s | FileCheck %s --check-prefix=AARCH64
 // RUN: fir-opt --target-rewrite="target=powerpc64le-unknown-linux-gnu" %s | FileCheck %s --check-prefix=PPC
+// UNSUPPORTED: darwin
 
 // Test that we rewrite the signature and body of a function that returns a
 // complex<4>.
@@ -452,4 +453,24 @@ func private @mlircomplexf32(%z1: complex<f32>, %z2: complex<f32>) -> complex<f3
   // PPC: [[RES:%[0-9A-Za-z]+]] = fir.load [[ADDRT_2]] : !fir.ref<tuple<f32, f32>>
   // PPC: return [[RES]] : tuple<f32, f32>
   return %0 : complex<f32>
+}
+
+// Test that we rewrite the fir.address_of operator.
+// I32-LABEL: func @addrof()
+// X64-LABEL: func @addrof()
+// AARCH64-LABEL: func @addrof()
+// PPC-LABEL: func @addrof()
+func @addrof() {
+  // I32: {{%.*}} = fir.address_of(@returncomplex4) : () -> i64
+  // X64: {{%.*}} = fir.address_of(@returncomplex4) : () -> !fir.vector<2:!fir.real<4>>
+  // AARCH64: {{%.*}} = fir.address_of(@returncomplex4) : () -> tuple<!fir.real<4>, !fir.real<4>>
+  // PPC: {{%.*}} = fir.address_of(@returncomplex4) : () -> tuple<!fir.real<4>, !fir.real<4>>
+  %r = fir.address_of(@returncomplex4) : () -> !fir.complex<4>
+
+  // I32: {{%.*}} = fir.address_of(@paramcomplex4) : (!fir.ref<tuple<!fir.real<4>, !fir.real<4>>>) -> ()
+  // X64: {{%.*}} = fir.address_of(@paramcomplex4) : (!fir.vector<2:!fir.real<4>>) -> ()
+  // AARCH64: {{%.*}} = fir.address_of(@paramcomplex4) : (!fir.array<2x!fir.real<4>>) -> ()
+  // PPC: {{%.*}} = fir.address_of(@paramcomplex4) : (!fir.real<4>, !fir.real<4>) -> ()
+  %p = fir.address_of(@paramcomplex4) : (!fir.complex<4>) -> ()
+  return
 }
