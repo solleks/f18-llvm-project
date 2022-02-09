@@ -201,33 +201,36 @@ public:
   // the addendum defined in descriptor.h.
   mlir::Type convertBoxType(BoxType box, int rank = unknownRank()) {
     // (base_addr*, elem_len, version, rank, type, attribute, f18Addendum, [dim]
-    llvm::SmallVector<mlir::Type> descFields;
+    llvm::SmallVector<mlir::Type> dataDescFields;
     mlir::Type ele = box.getEleTy();
     // remove fir.heap/fir.ref/fir.ptr
     if (auto removeIndirection = fir::dyn_cast_ptrEleTy(ele))
       ele = removeIndirection;
     auto eleTy = convertType(ele);
-    // buffer*
+    // base_addr*
     if (ele.isa<SequenceType>() && eleTy.isa<mlir::LLVM::LLVMPointerType>())
-      descFields.push_back(eleTy);
+      dataDescFields.push_back(eleTy);
     else
-      descFields.push_back(mlir::LLVM::LLVMPointerType::get(eleTy));
+      dataDescFields.push_back(mlir::LLVM::LLVMPointerType::get(eleTy));
     // elem_len
-    descFields.push_back(
+    dataDescFields.push_back(
         getDescFieldTypeModel<kElemLenPosInBox>()(&getContext()));
     // version
-    descFields.push_back(
+    dataDescFields.push_back(
         getDescFieldTypeModel<kVersionPosInBox>()(&getContext()));
     // rank
-    descFields.push_back(getDescFieldTypeModel<kRankPosInBox>()(&getContext()));
+    dataDescFields.push_back(
+        getDescFieldTypeModel<kRankPosInBox>()(&getContext()));
     // type
-    descFields.push_back(getDescFieldTypeModel<kTypePosInBox>()(&getContext()));
+    dataDescFields.push_back(
+        getDescFieldTypeModel<kTypePosInBox>()(&getContext()));
     // attribute
-    descFields.push_back(
+    dataDescFields.push_back(
         getDescFieldTypeModel<kAttributePosInBox>()(&getContext()));
     // f18Addendum
-    descFields.push_back(
+    dataDescFields.push_back(
         getDescFieldTypeModel<kF18AddendumPosInBox>()(&getContext()));
+    // [dims]
     if (rank == unknownRank()) {
       if (auto seqTy = ele.dyn_cast<SequenceType>())
         rank = seqTy.getDimension();
@@ -236,15 +239,15 @@ public:
     }
     if (rank > 0) {
       auto rowTy = getDescFieldTypeModel<kDimsPosInBox>()(&getContext());
-      descFields.push_back(mlir::LLVM::LLVMArrayType::get(rowTy, rank));
+      dataDescFields.push_back(mlir::LLVM::LLVMArrayType::get(rowTy, rank));
     }
     // opt-type-ptr: i8* (see fir.tdesc)
     if (requiresExtendedDesc(ele)) {
-      descFields.push_back(
+      dataDescFields.push_back(
           getExtendedDescFieldTypeModel<kOptTypePtrPosInBox>()(&getContext()));
       auto rowTy =
           getExtendedDescFieldTypeModel<kOptRowTypePosInBox>()(&getContext());
-      descFields.push_back(mlir::LLVM::LLVMArrayType::get(rowTy, 1));
+      dataDescFields.push_back(mlir::LLVM::LLVMArrayType::get(rowTy, 1));
       if (auto recTy = fir::unwrapSequenceType(ele).dyn_cast<fir::RecordType>())
         if (recTy.getNumLenParams() > 0) {
           // The descriptor design needs to be clarified regarding the number of
@@ -253,12 +256,12 @@ public:
           // always possibly be placed in the addendum.
           TODO_NOLOC("extended descriptor derived with length parameters");
           unsigned numLenParams = recTy.getNumLenParams();
-          descFields.push_back(
+          dataDescFields.push_back(
               mlir::LLVM::LLVMArrayType::get(rowTy, numLenParams));
         }
     }
     return mlir::LLVM::LLVMPointerType::get(
-        mlir::LLVM::LLVMStructType::getLiteral(&getContext(), descFields,
+        mlir::LLVM::LLVMStructType::getLiteral(&getContext(), dataDescFields,
                                                /*isPacked=*/false));
   }
   /// Convert fir.box type to the corresponding llvm struct type instead of a
@@ -373,7 +376,7 @@ public:
   }
 
   // fir.tdesc<any>  -->  llvm<"i8*">
-  // TODO: for now use a void*, however pointer identity is not sufficient for
+  // TODO: For now use a void*, however pointer identity is not sufficient for
   // the f18 object v. class distinction (F2003).
   mlir::Type convertTypeDescType(mlir::MLIRContext *ctx) {
     return mlir::LLVM::LLVMPointerType::get(
