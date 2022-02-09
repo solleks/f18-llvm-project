@@ -67,6 +67,7 @@ public:
     addConversion(
         [&](fir::ComplexType cmplx) { return convertComplexType(cmplx); });
     addConversion([&](fir::FieldType field) {
+      // Convert to i32 because of LLVM GEP indexing restriction.
       return mlir::IntegerType::get(field.getContext(), 32);
     });
     addConversion([&](HeapType heap) { return convertPointerLike(heap); });
