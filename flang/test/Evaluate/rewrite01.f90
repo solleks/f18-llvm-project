@@ -101,6 +101,8 @@ subroutine len_test(a,b, c, d)
   print *, len(d(c))
   !CHECK: PRINT *, 20_4
   print *, len(d(c) // c)
+  !CHECK: PRINT *, 0_4
+  print *, len(a(10:4))
 end subroutine len_test
 
 end module
