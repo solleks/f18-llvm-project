@@ -374,7 +374,7 @@ public:
 
   // fir.tdesc<any>  -->  llvm<"i8*">
   // TODO: for now use a void*, however pointer identity is not sufficient for
-  // the f18 object v. class distinction
+  // the f18 object v. class distinction (F2003).
   mlir::Type convertTypeDescType(mlir::MLIRContext *ctx) {
     return mlir::LLVM::LLVMPointerType::get(
         mlir::IntegerType::get(&getContext(), 8));
@@ -396,7 +396,7 @@ public:
     case llvm::Type::TypeID::FP128TyID:
       return mlir::FloatType::getF128(&getContext());
     default:
-      emitError(mlir::UnknownLoc::get(&getContext()))
+      mlir::emitError(mlir::UnknownLoc::get(&getContext()))
           << "unsupported type: !fir.real<" << kind << ">";
       return {};
     }
