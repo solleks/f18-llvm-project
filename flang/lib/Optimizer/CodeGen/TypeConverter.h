@@ -20,7 +20,6 @@
 #include "flang/Optimizer/Support/FIRContext.h"
 #include "flang/Optimizer/Support/KindMapping.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/Debug.h"
 
 // Position of the different values in a `fir.box`.
@@ -297,12 +296,6 @@ public:
     return mlir::LLVM::LLVMArrayType::get(iTy, charTy.getLen());
   }
 
-  // Convert a complex value's element type based on its Fortran kind.
-  mlir::Type convertComplexPartType(fir::KindTy kind) {
-    auto realID = kindMapping.getComplexTypeID(kind);
-    return fromRealTypeID(realID, kind);
-  }
-
   // Use the target specifics to figure out how to map complex to LLVM IR. The
   // use of complex values in function signatures is handled before conversion
   // to LLVM IR dialect here.
@@ -313,14 +306,6 @@ public:
     LLVM_DEBUG(llvm::dbgs() << "type convert: " << cmplx << '\n');
     auto eleTy = cmplx.getElementType();
     return convertType(specifics->complexMemoryType(eleTy));
-  }
-
-  // Get the default size of INTEGER. (The default size might have been set on
-  // the command line.)
-  mlir::Type getDefaultInt() {
-    return mlir::IntegerType::get(
-        &getContext(),
-        kindMapping.getIntegerBitsize(kindMapping.defaultIntegerKind()));
   }
 
   template <typename A>
