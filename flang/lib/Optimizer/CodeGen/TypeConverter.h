@@ -34,6 +34,7 @@ static constexpr unsigned kF18AddendumPosInBox = 6;
 static constexpr unsigned kDimsPosInBox = 7;
 static constexpr unsigned kOptTypePtrPosInBox = 8;
 static constexpr unsigned kOptRowTypePosInBox = 9;
+
 // Position of the different values in [dims]
 static constexpr unsigned kDimLowerBoundPos = 0;
 static constexpr unsigned kDimExtentPos = 1;
@@ -96,9 +97,10 @@ public:
         [&](fir::RealType real) { return convertRealType(real.getFKind()); });
     addConversion(
         [&](fir::ReferenceType ref) { return convertPointerLike(ref); });
-    addConversion(
-        [&](SequenceType sequence) { return convertSequenceType(sequence); });
-    addConversion([&](TypeDescType tdesc) {
+    addConversion([&](fir::SequenceType sequence) {
+      return convertSequenceType(sequence);
+    });
+    addConversion([&](fir::TypeDescType tdesc) {
       return convertTypeDescType(tdesc.getContext());
     });
     addConversion([&](fir::VectorType vecTy) {
