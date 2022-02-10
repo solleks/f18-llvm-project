@@ -1,0 +1,20 @@
+name: Comment on PR modifyin locked files
+
+on:
+  pull_request:
+    branches:
+      - fir-dev
+    paths:
+      - 'flang/lib/Optimizer/**'
+      - 'flang/include/flang/Optimizer/**'
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    name: Locked files
+    steps:
+      - name: Comment current pull request
+        uses: alawiii521/current-pr-comment@v1.0
+        with:
+          comment: "You are modifying locked files on fir-dev. Please upstream your changes."
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
