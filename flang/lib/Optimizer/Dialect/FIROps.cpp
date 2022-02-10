@@ -501,13 +501,13 @@ static mlir::LogicalResult verify(fir::ArrayFetchOp op) {
 
 static mlir::LogicalResult verify(fir::ArrayAccessOp op) {
   auto arrTy = op.sequence().getType().cast<fir::SequenceType>();
-  auto indSize = op.indices().size();
+  std::size_t indSize = op.indices().size();
   if (indSize < arrTy.getDimension())
     return op.emitOpError("number of indices != dimension of array");
   if (indSize == arrTy.getDimension() &&
       op.element().getType() != fir::ReferenceType::get(arrTy.getEleTy()))
     return op.emitOpError("return type does not match array");
-  auto ty = validArraySubobject(op);
+  mlir::Type ty = validArraySubobject(op);
   if (!ty || fir::ReferenceType::get(ty) != op.getType())
     return op.emitOpError("return type and/or indices do not type check");
   return mlir::success();
