@@ -77,11 +77,28 @@ subroutine lbound_test(x, n, m)
   print *, lbound(returns_array_3(), dim=1)
 end subroutine
 
-subroutine len_test(a,b, c, d)
-  character(*) :: a, b
+!CHECK: len_test
+subroutine len_test(a,b, c, d, e, n, m)
+  character(*), intent(in) :: a
+  character(*) :: b
   external b
-  character(10) :: c, d
+  character(10), intent(in) :: c
+  character(10) :: d
   external d
+  integer, intent(in) :: n, m
+  character(n), intent(in) :: e
+  interface
+     function fun1(L)
+       character(L) :: fun1
+       integer :: L
+     end function fun1
+  end interface
+  interface
+     function mofun(L)
+       character(L) :: mofun
+       integer, intent(in) :: L
+     end function mofun
+  end interface
 
   !CHECK: PRINT *, len(a)
   print *, len(a)
@@ -103,6 +120,18 @@ subroutine len_test(a,b, c, d)
   print *, len(d(c) // c)
   !CHECK: PRINT *, 0_4
   print *, len(a(10:4))
+  !CHECK: PRINT *, len(a(int(n,kind=8):int(m,kind=8)))
+  print *, len(a(n:m))
+  !CHECK: PRINT *, len(b(a(int(n,kind=8):int(m,kind=8))))
+  print *, len(b(a(n:m)))
+  !CHECK: PRINT *, len(e(4_8:max(0_8,int(n,kind=8))))
+  print *, len(e(4:))
+  !CHECK: PRINT *, len(e(4_8:int(n+5_4,kind=8)))
+  print *, len(e(4:n+5))
+  !CHECK: PRINT *, len(fun1(n-m))
+  print *, len(fun1(n-m))
+  !CHECK: PRINT *, len(mofun(m+1_4))
+  print *, len(mofun(m+1))
 end subroutine len_test
 
 end module
