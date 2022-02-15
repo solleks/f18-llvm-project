@@ -64,4 +64,14 @@ def TargetRewrite : Pass<"target-rewrite", "mlir::ModuleOp"> {
   ];
 }
 
+def ProcedurePointerPass : Pass<"procedure-pointer", "mlir::ModuleOp"> {
+  let constructor = "::fir::createProcedurePointerPass()";
+  let options = [
+    Option<"useThunks", "use-thunks",
+           "bool", /*default=*/"true",
+           "Convert procedure pointer abstractions to a single code pointer, "
+           "deploying thunks wherever required.">
+  ];
+}
+
 #endif // FORTRAN_OPTIMIZER_CODEGEN_FIR_PASSES

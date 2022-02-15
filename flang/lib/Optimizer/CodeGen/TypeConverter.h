@@ -276,10 +276,9 @@ public:
   // fir.boxproc<any>  -->  llvm<"{ any*, i8* }">
   mlir::Type convertBoxProcType(BoxProcType boxproc) {
     auto funcTy = convertType(boxproc.getEleTy());
-    auto ptrTy = mlir::LLVM::LLVMPointerType::get(funcTy);
     auto i8PtrTy = mlir::LLVM::LLVMPointerType::get(
         mlir::IntegerType::get(&getContext(), 8));
-    llvm::SmallVector<mlir::Type, 2> tuple = {ptrTy, i8PtrTy};
+    llvm::SmallVector<mlir::Type, 2> tuple = {funcTy, i8PtrTy};
     return mlir::LLVM::LLVMStructType::getLiteral(&getContext(), tuple,
                                                   /*isPacked=*/false);
   }

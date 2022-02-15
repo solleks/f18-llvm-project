@@ -46,6 +46,9 @@ std::unique_ptr<mlir::Pass> createLLVMDialectToLLVMPass(
     LLVMIRLoweringPrinter printer =
         [](llvm::Module &m, llvm::raw_ostream &out) { m.print(out, nullptr); });
 
+std::unique_ptr<mlir::Pass> createProcedurePointerPass();
+std::unique_ptr<mlir::Pass> createProcedurePointerPass(bool useThunks);
+
 // declarative passes
 #define GEN_PASS_REGISTRATION
 #include "flang/Optimizer/CodeGen/CGPasses.h.inc"

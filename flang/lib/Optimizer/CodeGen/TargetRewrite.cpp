@@ -18,6 +18,7 @@
 #include "Target.h"
 #include "flang/Lower/Todo.h"
 #include "flang/Optimizer/Builder/Character.h"
+#include "flang/Optimizer/Builder/FIRBuilder.h"
 #include "flang/Optimizer/CodeGen/CodeGen.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
 #include "flang/Optimizer/Dialect/FIROps.h"
@@ -271,12 +272,12 @@ public:
             rewriteCallComplexInputType(cmplx, oper, newInTys, newOpers);
           })
           .template Case<mlir::TupleType>([&](mlir::TupleType tuple) {
-            if (factory::isCharacterProcedureTuple(tuple)) {
+            if (isCharacterProcedureTuple(tuple)) {
               mlir::ModuleOp module = getModule();
               if constexpr (std::is_same_v<std::decay_t<A>, fir::CallOp>) {
                 if (callOp.callee()) {
                   llvm::StringRef charProcAttr =
-                      fir::getCharacterProcedureDummyAttrName();
+                      getCharacterProcedureDummyAttrName();
                   // The charProcAttr attribute is only used as a safety to
                   // confirm that this is a dummy procedure and should be split.
                   // It cannot be used to match because attributes are not
@@ -400,7 +401,7 @@ public:
             lowerComplexSignatureArg(ty, newInTys);
           })
           .Case<mlir::TupleType>([&](mlir::TupleType tuple) {
-            if (factory::isCharacterProcedureTuple(tuple)) {
+            if (isCharacterProcedureTuple(tuple)) {
               newInTys.push_back(tuple.getType(0));
               trailingInTys.push_back(tuple.getType(1));
             } else {
@@ -443,7 +444,7 @@ public:
         return false;
       }
     for (auto ty : func.getInputs())
-      if (((ty.isa<BoxCharType>() || factory::isCharacterProcedureTuple(ty)) &&
+      if (((ty.isa<BoxCharType>() || isCharacterProcedureTuple(ty)) &&
            !noCharacterConversion) ||
           (isa_complex(ty) && !noComplexConversion)) {
         LLVM_DEBUG(llvm::dbgs() << "rewrite " << signature << " for target\n");
@@ -452,11 +453,21 @@ public:
     return true;
   }
 
+  /// Determine if the signature has host associations. The host association
+  /// argument may need special target specific rewriting.
+  static bool hasHostAssociations(mlir::FuncOp func) {
+    std::size_t end = func.getType().getInputs().size();
+    for (std::size_t i = 0; i < end; ++i)
+      if (func.getArgAttrOfType<mlir::UnitAttr>(i, getHostAssocAttrName()))
+        return true;
+    return false;
+  }
+
   /// Rewrite the signatures and body of the `FuncOp`s in the module for
   /// the immediately subsequent target code gen.
   void convertSignature(mlir::FuncOp func) {
     auto funcTy = func.getType().cast<mlir::FunctionType>();
-    if (hasPortableSignature(funcTy))
+    if (hasPortableSignature(funcTy) && !hasHostAssociations(func))
       return;
     llvm::SmallVector<mlir::Type> newResTys;
     llvm::SmallVector<mlir::Type> newInTys;
@@ -527,7 +538,7 @@ public:
               doComplexArg(func, cmplx, newInTys, fixups);
           })
           .Case<mlir::TupleType>([&](mlir::TupleType tuple) {
-            if (factory::isCharacterProcedureTuple(tuple)) {
+            if (isCharacterProcedureTuple(tuple)) {
               fixups.emplace_back(FixupTy::Codes::TrailingCharProc,
                                   newInTys.size(), trailingTys.size());
               newInTys.push_back(tuple.getType(0));
@@ -537,6 +548,10 @@ public:
             }
           })
           .Default([&](mlir::Type ty) { newInTys.push_back(ty); });
+      if (func.getArgAttrOfType<mlir::UnitAttr>(index,
+                                                getHostAssocAttrName())) {
+        func.setArgAttr(index, "llvm.nest", rewriter->getUnitAttr());
+      }
     }
 
     if (!func.empty()) {
@@ -666,7 +681,7 @@ public:
           func.front().eraseArgument(fixup.index + 1);
         } break;
         case FixupTy::Codes::TrailingCharProc: {
-          // The FIR character procedure argument tuple has been split into a
+          // The FIR character procedure argument tuple must be split into a
           // pair of distinct arguments. The first part of the pair appears in
           // the original argument position. The second part of the pair is
           // appended after all the original arguments.

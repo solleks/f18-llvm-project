@@ -43,6 +43,11 @@ mlir::FuncOp fir::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
   return modOp.lookupSymbol<mlir::FuncOp>(name);
 }
 
+mlir::FuncOp fir::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
+                                                 mlir::SymbolRefAttr symbol) {
+  return modOp.lookupSymbol<mlir::FuncOp>(symbol);
+}
+
 fir::GlobalOp fir::FirOpBuilder::getNamedGlobal(mlir::ModuleOp modOp,
                                                 llvm::StringRef name) {
   return modOp.lookupSymbol<fir::GlobalOp>(name);

@@ -108,6 +108,10 @@ public:
   /// Get the mlir float type that implements Fortran REAL(kind).
   mlir::Type getRealType(int kind);
 
+  fir::BoxProcType getBoxProcType(mlir::FunctionType funcTy) {
+    return fir::BoxProcType::get(getContext(), funcTy);
+  }
+
   /// Create a null constant memory reference of type \p ptrType.
   /// If \p ptrType is not provided, !fir.ref<none> type will be used.
   mlir::Value createNullConstant(mlir::Location loc, mlir::Type ptrType = {});
@@ -217,9 +221,16 @@ public:
   mlir::FuncOp getNamedFunction(llvm::StringRef name) {
     return getNamedFunction(getModule(), name);
   }
-
   static mlir::FuncOp getNamedFunction(mlir::ModuleOp module,
                                        llvm::StringRef name);
+
+  /// Get a function by symbol name. The result will be null if there is no
+  /// function with the given symbol in the module.
+  mlir::FuncOp getNamedFunction(mlir::SymbolRefAttr symbol) {
+    return getNamedFunction(getModule(), symbol);
+  }
+  static mlir::FuncOp getNamedFunction(mlir::ModuleOp module,
+                                       mlir::SymbolRefAttr symbol);
 
   fir::GlobalOp getNamedGlobal(llvm::StringRef name) {
     return getNamedGlobal(getModule(), name);

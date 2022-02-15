@@ -863,6 +863,7 @@ static mlir::LogicalResult verify(fir::ConvertOp &op) {
       (op.isIntegerCompatible(inType) && op.isPointerCompatible(outType)) ||
       (op.isPointerCompatible(inType) && op.isIntegerCompatible(outType)) ||
       (inType.isa<fir::BoxType>() && outType.isa<fir::BoxType>()) ||
+      (inType.isa<fir::BoxProcType>() && outType.isa<fir::BoxProcType>()) ||
       (fir::isa_complex(inType) && fir::isa_complex(outType)))
     return mlir::success();
   return op.emitOpError("invalid type conversion");
@@ -1078,57 +1079,13 @@ static mlir::LogicalResult verify(fir::EmboxCharOp &op) {
 // EmboxProcOp
 //===----------------------------------------------------------------------===//
 
-static mlir::ParseResult parseEmboxProcOp(mlir::OpAsmParser &parser,
-                                          mlir::OperationState &result) {
-  mlir::SymbolRefAttr procRef;
-  if (parser.parseAttribute(procRef, "funcname", result.attributes))
-    return mlir::failure();
-  bool hasTuple = false;
-  mlir::OpAsmParser::OperandType tupleRef;
-  if (!parser.parseOptionalComma()) {
-    if (parser.parseOperand(tupleRef))
-      return mlir::failure();
-    hasTuple = true;
-  }
-  mlir::FunctionType type;
-  if (parser.parseColon() || parser.parseLParen() || parser.parseType(type))
-    return mlir::failure();
-  result.addAttribute("functype", mlir::TypeAttr::get(type));
-  if (hasTuple) {
-    mlir::Type tupleType;
-    if (parser.parseComma() || parser.parseType(tupleType) ||
-        parser.resolveOperand(tupleRef, tupleType, result.operands))
-      return mlir::failure();
-  }
-  mlir::Type boxType;
-  if (parser.parseRParen() || parser.parseArrow() ||
-      parser.parseType(boxType) || parser.addTypesToList(boxType, result.types))
-    return mlir::failure();
-  return mlir::success();
-}
-
-static void print(mlir::OpAsmPrinter &p, fir::EmboxProcOp &op) {
-  p << ' ' << op.getOperation()->getAttr("funcname");
-  auto h = op.host();
-  if (h) {
-    p << ", ";
-    p.printOperand(h);
-  }
-  p << " : (" << op.getOperation()->getAttr("functype");
-  if (h)
-    p << ", " << h.getType();
-  p << ") -> " << op.getType();
-}
-
 static mlir::LogicalResult verify(fir::EmboxProcOp &op) {
   // host bindings (optional) must be a reference to a tuple
   if (auto h = op.host()) {
-    if (auto r = h.getType().dyn_cast<ReferenceType>()) {
-      if (!r.getEleTy().dyn_cast<mlir::TupleType>())
-        return mlir::failure();
-    } else {
-      return mlir::failure();
-    }
+    if (auto r = h.getType().dyn_cast<ReferenceType>())
+      if (r.getEleTy().dyn_cast<mlir::TupleType>())
+        return mlir::success();
+    return mlir::failure();
   }
   return mlir::success();
 }

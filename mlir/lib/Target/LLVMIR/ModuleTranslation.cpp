@@ -772,6 +772,14 @@ LogicalResult ModuleTranslation::convertOneFunction(LLVMFuncOp func) {
           llvmArg.getType()->getPointerElementType()));
     }
 
+    if (auto attr = func.getArgAttrOfType<UnitAttr>(argIdx, "llvm.nest")) {
+      auto argTy = mlirArg.getType();
+      if (!argTy.isa<LLVM::LLVMPointerType>())
+        return func.emitError(
+            "llvm.nest attribute attached to LLVM non-pointer argument");
+      llvmArg.addAttrs(llvm::AttrBuilder().addAttribute(llvm::Attribute::Nest));
+    }
+
     mapValue(mlirArg, &llvmArg);
     argIdx++;
   }

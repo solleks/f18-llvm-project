@@ -13,6 +13,7 @@
 #include "flang/Optimizer/Builder/Character.h"
 #include "flang/Lower/Todo.h"
 #include "flang/Optimizer/Builder/DoLoopHelper.h"
+#include "flang/Optimizer/Builder/FIRBuilder.h"
 #include "llvm/Support/Debug.h"
 
 #define DEBUG_TYPE "flang-lower-character"
@@ -316,60 +317,6 @@ mlir::Value fir::factory::CharacterExprHelper::getCharBoxBuffer(
     return newBuff;
   }
   return buff;
-}
-
-mlir::FuncOp fir::factory::getLlvmMemcpy(fir::FirOpBuilder &builder) {
-  auto ptrTy = builder.getRefType(builder.getIntegerType(8));
-  llvm::SmallVector<mlir::Type> args = {ptrTy, ptrTy, builder.getI64Type(),
-                                        builder.getI1Type()};
-  auto memcpyTy =
-      mlir::FunctionType::get(builder.getContext(), args, llvm::None);
-  return builder.addNamedFunction(builder.getUnknownLoc(),
-                                  "llvm.memcpy.p0i8.p0i8.i64", memcpyTy);
-}
-
-mlir::FuncOp fir::factory::getLlvmMemmove(fir::FirOpBuilder &builder) {
-  auto ptrTy = builder.getRefType(builder.getIntegerType(8));
-  llvm::SmallVector<mlir::Type> args = {ptrTy, ptrTy, builder.getI64Type(),
-                                        builder.getI1Type()};
-  auto memmoveTy =
-      mlir::FunctionType::get(builder.getContext(), args, llvm::None);
-  return builder.addNamedFunction(builder.getUnknownLoc(),
-                                  "llvm.memmove.p0i8.p0i8.i64", memmoveTy);
-}
-
-mlir::FuncOp fir::factory::getLlvmMemset(fir::FirOpBuilder &builder) {
-  auto ptrTy = builder.getRefType(builder.getIntegerType(8));
-  llvm::SmallVector<mlir::Type> args = {ptrTy, ptrTy, builder.getI64Type(),
-                                        builder.getI1Type()};
-  auto memsetTy =
-      mlir::FunctionType::get(builder.getContext(), args, llvm::None);
-  return builder.addNamedFunction(builder.getUnknownLoc(),
-                                  "llvm.memset.p0i8.p0i8.i64", memsetTy);
-}
-
-mlir::FuncOp fir::factory::getRealloc(fir::FirOpBuilder &builder) {
-  auto ptrTy = builder.getRefType(builder.getIntegerType(8));
-  llvm::SmallVector<mlir::Type> args = {ptrTy, builder.getI64Type()};
-  auto reallocTy = mlir::FunctionType::get(builder.getContext(), args, {ptrTy});
-  return builder.addNamedFunction(builder.getUnknownLoc(), "realloc",
-                                  reallocTy);
-}
-
-mlir::FuncOp fir::factory::getLlvmStackSave(fir::FirOpBuilder &builder) {
-  auto ptrTy = builder.getRefType(builder.getIntegerType(8));
-  auto funcTy =
-      mlir::FunctionType::get(builder.getContext(), llvm::None, {ptrTy});
-  return builder.addNamedFunction(builder.getUnknownLoc(), "llvm.stacksave",
-                                  funcTy);
-}
-
-mlir::FuncOp fir::factory::getLlvmStackRestore(fir::FirOpBuilder &builder) {
-  auto ptrTy = builder.getRefType(builder.getIntegerType(8));
-  auto funcTy =
-      mlir::FunctionType::get(builder.getContext(), {ptrTy}, llvm::None);
-  return builder.addNamedFunction(builder.getUnknownLoc(), "llvm.stackrestore",
-                                  funcTy);
 }
 
 /// Create a loop to copy `count` characters from `src` to `dest`. Note that the
@@ -757,15 +704,20 @@ fir::factory::extractCharacterProcedureTuple(fir::FirOpBuilder &builder,
                                              mlir::Location loc,
                                              mlir::Value tuple) {
   mlir::TupleType tupleType = tuple.getType().cast<mlir::TupleType>();
-  mlir::Value addr = builder.create<fir::ExtractValueOp>(
+  auto addr = builder.create<fir::ExtractValueOp>(
       loc, tupleType.getType(0), tuple,
       builder.getArrayAttr(
           {builder.getIntegerAttr(builder.getIndexType(), 0)}));
+  mlir::Value proc = [&]() -> mlir::Value {
+    if (auto addrTy = addr.getType().dyn_cast<fir::BoxProcType>())
+      return builder.create<fir::BoxAddrOp>(loc, addrTy.getEleTy(), addr);
+    return addr;
+  }();
   mlir::Value len = builder.create<fir::ExtractValueOp>(
       loc, tupleType.getType(1), tuple,
       builder.getArrayAttr(
           {builder.getIntegerAttr(builder.getIndexType(), 1)}));
-  return {addr, len};
+  return {proc, len};
 }
 
 mlir::Value fir::factory::createCharacterProcedureTuple(
@@ -784,13 +736,6 @@ mlir::Value fir::factory::createCharacterProcedureTuple(
       builder.getArrayAttr(
           {builder.getIntegerAttr(builder.getIndexType(), 1)}));
   return tuple;
-}
-
-bool fir::factory::isCharacterProcedureTuple(mlir::Type ty) {
-  mlir::TupleType tuple = ty.dyn_cast<mlir::TupleType>();
-  return tuple && tuple.size() == 2 &&
-         tuple.getType(0).isa<mlir::FunctionType>() &&
-         fir::isa_integer(tuple.getType(1));
 }
 
 mlir::Type

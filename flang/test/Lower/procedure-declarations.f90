@@ -15,7 +15,7 @@
 subroutine pass_foo()
   external :: foo
   ! CHECK: %[[f:.*]] = fir.address_of(@_QPfoo)
-  ! CHECK: fir.convert %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> (() -> ())
+  ! CHECK: fir.emboxproc %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> !fir.boxproc<() -> ()>
   call bar(foo)
 end subroutine
 ! CHECK-LABEL: func @_QPcall_foo(
@@ -46,7 +46,7 @@ end subroutine
 subroutine pass_foo2()
   external :: foo2
   ! CHECK: %[[f:.*]] = fir.address_of(@_QPfoo2)
-  ! CHECK: fir.convert %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> (() -> ())
+  ! CHECK: fir.emboxproc %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> !fir.boxproc<() -> ()>
   call bar(foo2)
 end subroutine
 ! CHECK-LABEL: func @_QPfoo2(
@@ -75,7 +75,7 @@ end subroutine
 subroutine pass_foo3()
   external :: foo3
   ! CHECK: %[[f:.*]] = fir.address_of(@_QPfoo3)
-  ! CHECK: fir.convert %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> (() -> ())
+  ! CHECK: fir.emboxproc %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> !fir.boxproc<() -> ()>
   call bar(foo3)
 end subroutine
 
@@ -98,7 +98,7 @@ end subroutine
 subroutine pass_foo4()
   external :: foo4
   ! CHECK: %[[f:.*]] = fir.address_of(@_QPfoo4)
-  ! CHECK: fir.convert %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> (() -> ())
+  ! CHECK: fir.emboxproc %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> !fir.boxproc<() -> ()>
   call bar(foo4)
 end subroutine
 
@@ -113,7 +113,7 @@ end subroutine
 subroutine pass_foo5()
   external :: foo5
   ! CHECK: %[[f:.*]] = fir.address_of(@_QPfoo5)
-  ! CHECK: fir.convert %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> (() -> ())
+  ! CHECK: fir.emboxproc %[[f]] : ((!fir.ref<!fir.array<2x5xi32>>) -> ()) -> !fir.boxproc<() -> ()>
   call bar(foo5)
 end subroutine
 ! CHECK-LABEL: func @_QPcall_foo5(
@@ -141,7 +141,7 @@ end subroutine
 subroutine pass_foo6()
   external :: foo6
   ! CHECK: %[[f:.*]] = fir.address_of(@_QPfoo6) : (!fir.ref<!fir.array<10xi32>>) -> ()
-  ! CHECK: fir.convert %[[f]] : ((!fir.ref<!fir.array<10xi32>>) -> ()) -> (() -> ())
+  ! CHECK: fir.emboxproc %[[f]] : ((!fir.ref<!fir.array<10xi32>>) -> ()) -> !fir.boxproc<() -> ()>
   call bar(foo6)
 end subroutine
 

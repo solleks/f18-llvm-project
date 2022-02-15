@@ -490,6 +490,42 @@ struct InitializerData {
   bool genRawVals;    // generate the rawVals vector if set.
 };
 
+/// If \p arg is the address of a function with a denoted host-association tuple
+/// argument, then return the host-associations tuple value of the current
+/// procedure. Otherwise, return nullptr.
+static mlir::Value
+argumentHostAssocs(Fortran::lower::AbstractConverter &converter,
+                   mlir::Value arg) {
+  if (auto addr = mlir::dyn_cast_or_null<fir::AddrOfOp>(arg.getDefiningOp())) {
+    auto &builder = converter.getFirOpBuilder();
+    if (auto funcOp = builder.getNamedFunction(addr.symbol()))
+      if (fir::anyFuncArgsHaveAttr(funcOp, fir::getHostAssocAttrName()))
+        return converter.hostAssocTupleValue();
+  }
+  return {};
+}
+
+/// \p argTy must be a tuple (pair) of boxproc and integral types. Convert the
+/// \p funcAddr argument to a boxproc value, with the host-association as
+/// required. Call the factory function to finish creating the tuple value.
+static mlir::Value
+createBoxProcCharTuple(Fortran::lower::AbstractConverter &converter,
+                       mlir::Type argTy, mlir::Value funcAddr,
+                       mlir::Value charLen) {
+  auto boxTy =
+      argTy.cast<mlir::TupleType>().getType(0).cast<fir::BoxProcType>();
+  mlir::Location loc = converter.getCurrentLocation();
+  auto &builder = converter.getFirOpBuilder();
+  auto boxProc = [&]() -> mlir::Value {
+    if (auto host = argumentHostAssocs(converter, funcAddr))
+      return builder.create<fir::EmboxProcOp>(
+          loc, boxTy, llvm::ArrayRef<mlir::Value>{funcAddr, host});
+    return builder.create<fir::EmboxProcOp>(loc, boxTy, funcAddr);
+  }();
+  return fir::factory::createCharacterProcedureTuple(builder, loc, argTy,
+                                                     boxProc, charLen);
+}
+
 namespace {
 
 /// Lowering of Fortran::evaluate::Expr<T> expressions
@@ -734,7 +770,8 @@ public:
       Fortran::lower::SymbolBox val = symMap.lookupSymbol(*symbol);
       assert(val && "Dummy procedure not in symbol map");
       funcPtr = val.getAddr();
-      if (fir::factory::isCharacterProcedureTuple(funcPtr))
+      if (fir::isCharacterProcedureTuple(funcPtr.getType(),
+                                         /*acceptRawFunc=*/false))
         std::tie(funcPtr, funcPtrResultLength) =
             fir::factory::extractCharacterProcedureTuple(builder, loc, funcPtr);
     } else {
@@ -2239,7 +2276,8 @@ public:
       funcPointer = symMap.lookupSymbol(*sym).getAddr();
       if (!funcPointer)
         fir::emitFatalError(loc, "failed to find indirect call symbol address");
-      if (fir::factory::isCharacterProcedureTuple(funcPointer))
+      if (fir::isCharacterProcedureTuple(funcPointer.getType(),
+                                         /*acceptRawFunc=*/false))
         std::tie(funcPointer, charFuncPointerLength) =
             fir::factory::extractCharacterProcedureTuple(builder, loc,
                                                          funcPointer);
@@ -2390,8 +2428,12 @@ public:
     // required function type for the call to handle procedures that have a
     // compatible interface in Fortran, but that have different signatures in
     // FIR.
-    if (funcPointer)
-      operands.push_back(builder.createConvert(loc, funcType, funcPointer));
+    if (funcPointer) {
+      operands.push_back(
+          funcPointer.getType().isa<fir::BoxProcType>()
+              ? builder.create<fir::BoxAddrOp>(loc, funcType, funcPointer)
+              : builder.createConvert(loc, funcType, funcPointer));
+    }
 
     // Deal with potential mismatches in arguments types. Passing an array to a
     // scalar argument should for instance be tolerated here.
@@ -2401,8 +2443,22 @@ public:
       // When passing arguments to a procedure that can be called an implicit
       // interface, allow character actual arguments to be passed to dummy
       // arguments of any type and vice versa
-      mlir::Value cast = builder.convertWithSemantics(getLoc(), snd, fst,
-                                                      callingImplicitInterface);
+      mlir::Value cast;
+      auto *context = builder.getContext();
+      if (snd.isa<fir::BoxProcType>() &&
+          fst.getType().isa<mlir::FunctionType>()) {
+        auto funcTy = mlir::FunctionType::get(context, llvm::None, llvm::None);
+        auto boxProcTy = builder.getBoxProcType(funcTy);
+        if (mlir::Value host = argumentHostAssocs(converter, fst)) {
+          cast = builder.create<fir::EmboxProcOp>(
+              loc, boxProcTy, llvm::ArrayRef<mlir::Value>{fst, host});
+        } else {
+          cast = builder.create<fir::EmboxProcOp>(loc, boxProcTy, fst);
+        }
+      } else {
+        cast = builder.convertWithSemantics(loc, snd, fst,
+                                            callingImplicitInterface);
+      }
       operands.push_back(cast);
     }
 
@@ -2808,8 +2864,8 @@ public:
                                           fir::getLen(argRef));
       } else if (arg.passBy == PassBy::CharProcTuple) {
         ExtValue argRef = genExtAddr(*expr);
-        mlir::Value tuple = fir::factory::createCharacterProcedureTuple(
-            builder, loc, argTy, fir::getBase(argRef), fir::getLen(argRef));
+        mlir::Value tuple = createBoxProcCharTuple(
+            converter, argTy, fir::getBase(argRef), fir::getLen(argRef));
         caller.placeInput(arg, tuple);
       } else {
         TODO(loc, "pass by value in non elemental function call");
@@ -4566,8 +4622,8 @@ private:
         break;
       case PassBy::CharProcTuple: {
         ExtValue argRef = asScalarRef(*expr);
-        mlir::Value tuple = fir::factory::createCharacterProcedureTuple(
-            builder, loc, argTy, fir::getBase(argRef), fir::getLen(argRef));
+        mlir::Value tuple = createBoxProcCharTuple(
+            converter, argTy, fir::getBase(argRef), fir::getLen(argRef));
         operands.emplace_back(
             [=](IterSpace iters) -> ExtValue { return tuple; });
       } break;

@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "PassDetail.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Optimizer/Transforms/Passes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 
@@ -30,6 +31,10 @@ struct AnnotateConstantOperands
           if (auto constOp = mlir::dyn_cast_or_null<mlir::arith::ConstantOp>(
                   opnd.getDefiningOp())) {
             attrs.push_back(constOp.value());
+            hasOneOrMoreConstOpnd = true;
+          } else if (auto addrOp = mlir::dyn_cast_or_null<fir::AddrOfOp>(
+                         opnd.getDefiningOp())) {
+            attrs.push_back(addrOp.symbol());
             hasOneOrMoreConstOpnd = true;
           } else {
             attrs.push_back(mlir::UnitAttr::get(context));
