@@ -7,6 +7,96 @@
 // SUMMARY: Tests for FIR --> LLVM MLIR conversion independent of the target
 //=============================================================================
 
+// Verify that fir.allocmem is transformed to a call to malloc
+// and that fir.freemem is transformed to a call to free
+// Single item case
+
+func @test_alloc_and_freemem_one() {
+  %z0 = fir.allocmem i32
+  fir.freemem %z0 : !fir.heap<i32>
+  return
+}
+
+// CHECK-LABEL:  llvm.func @test_alloc_and_freemem_one() {
+// CHECK-NEXT:    [[N:%.*]] = llvm.mlir.constant(4 : i64) : i64
+// CHECK-NEXT:    llvm.call @malloc([[N]])
+// CHECK:         llvm.call @free(%{{.*}})
+// CHECK-NEXT:    llvm.return
+
+// -----
+// Verify that fir.allocmem is transformed to a call to malloc
+// and that fir.freemem is transformed to a call to free
+// Several item case
+
+func @test_alloc_and_freemem_several() {
+  %z0 = fir.allocmem !fir.array<100xf32>
+  fir.freemem %z0 : !fir.heap<!fir.array<100xf32>>
+  return
+}
+
+// CHECK-LABEL:  llvm.func @test_alloc_and_freemem_several() {
+// CHECK: [[NULL:%.*]]  = llvm.mlir.null : !llvm.ptr<array<100 x f32>>
+// CHECK: [[PTR:%.*]]  = llvm.getelementptr [[NULL]][{{.*}}] : (!llvm.ptr<array<100 x f32>>, i64) -> !llvm.ptr<array<100 x f32>>
+// CHECK: [[N:%.*]]  = llvm.ptrtoint [[PTR]] : !llvm.ptr<array<100 x f32>> to i64
+// CHECK: [[MALLOC:%.*]] = llvm.call @malloc([[N]])
+// CHECK: [[B1:%.*]] = llvm.bitcast [[MALLOC]] : !llvm.ptr<i8> to !llvm.ptr<array<100 x f32>>
+// CHECK: [[B2:%.*]] = llvm.bitcast [[B1]] : !llvm.ptr<array<100 x f32>> to !llvm.ptr<i8>
+// CHECK:              llvm.call @free([[B2]])
+// CHECK:              llvm.return
+
+
+func @test_with_shape(%ncols: index, %nrows: index) {
+  %1 = fir.allocmem !fir.array<?x?xf32>, %ncols, %nrows
+  fir.freemem %1 : !fir.heap<!fir.array<?x?xf32>>
+  return
+}
+
+// CHECK-LABEL: llvm.func @test_with_shape
+// CHECK-SAME: %[[NCOLS:.*]]: i64, %[[NROWS:.*]]: i64
+// CHECK:   %[[FOUR:.*]] = llvm.mlir.constant(4 : i64) : i64
+// CHECK:   %[[DIM1_SIZE:.*]] = llvm.mul %[[FOUR]], %[[NCOLS]]  : i64
+// CHECK:   %[[TOTAL_SIZE:.*]] = llvm.mul %[[DIM1_SIZE]], %[[NROWS]]  : i64
+// CHECK:   %[[MEM:.*]] = llvm.call @malloc(%[[TOTAL_SIZE]])
+// CHECK:   %[[B1:.*]] = llvm.bitcast %[[MEM]] : !llvm.ptr<i8> to !llvm.ptr<f32>
+// CHECK:   %[[B2:.*]] = llvm.bitcast %[[B1]] : !llvm.ptr<f32> to !llvm.ptr<i8>
+// CHECK:   llvm.call @free(%[[B2]]) : (!llvm.ptr<i8>) -> ()
+// CHECK:   llvm.return
+// CHECK: }
+
+func @test_string_with_shape(%len: index, %nelems: index) {
+  %1 = fir.allocmem !fir.array<?x!fir.char<1,?>>(%len : index), %nelems
+  fir.freemem %1 : !fir.heap<!fir.array<?x!fir.char<1,?>>>
+  return
+}
+
+// CHECK-LABEL: llvm.func @test_string_with_shape
+// CHECK-SAME: %[[LEN:.*]]: i64, %[[NELEMS:.*]]: i64)
+// CHECK:   %[[ONE_1:.*]] = llvm.mlir.constant(1 : i64) : i64
+// CHECK:   %[[ONE_2:.*]] = llvm.mlir.constant(1 : i64) : i64
+// CHECK:   %[[ONE:.*]] = llvm.mul %[[ONE_1]], %[[ONE_2]]  : i64
+// CHECK:   %[[LEN_SIZE:.*]] = llvm.mul %[[ONE]], %[[LEN]]  : i64
+// CHECK:   %[[TOTAL_SIZE:.*]] = llvm.mul %[[LEN_SIZE]], %[[NELEMS]]  : i64
+// CHECK:   %[[MEM:.*]] = llvm.call @malloc(%[[TOTAL_SIZE]])
+// CHECK:   %[[B1:.*]] = llvm.bitcast %[[MEM]] : !llvm.ptr<i8> to !llvm.ptr<i8>
+// CHECK:   %[[B2:.*]] = llvm.bitcast %[[B1]] : !llvm.ptr<i8> to !llvm.ptr<i8>
+// CHECK:   llvm.call @free(%[[B2]]) : (!llvm.ptr<i8>) -> ()
+// CHECK:   llvm.return
+// CHECK: }
+
+// -----
+
+// Verify that fir.unreachable is transformed to llvm.unreachable
+
+func @test_unreachable() {
+  fir.unreachable
+}
+
+// CHECK:  llvm.func @test_unreachable() {
+// CHECK-NEXT:    llvm.unreachable
+// CHECK-NEXT:  }
+
+// -----
+
 // Test `fir.select` operation conversion pattern.
 // Check that the if-then-else ladder is correctly constructed and that we
 // branch to the correct block.

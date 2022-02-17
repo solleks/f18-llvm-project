@@ -64,8 +64,8 @@ TEST_F(FIRBuilderTest, genIfThen) {
   auto loc = builder.getUnknownLoc();
   auto cdt = createCondition(builder);
   auto ifBuilder = builder.genIfThen(loc, cdt);
-  EXPECT_FALSE(ifBuilder.getIfOp().thenRegion().empty());
-  EXPECT_TRUE(ifBuilder.getIfOp().elseRegion().empty());
+  EXPECT_FALSE(ifBuilder.getIfOp().getThenRegion().empty());
+  EXPECT_TRUE(ifBuilder.getIfOp().getElseRegion().empty());
 }
 
 TEST_F(FIRBuilderTest, genIfThenElse) {
@@ -73,8 +73,8 @@ TEST_F(FIRBuilderTest, genIfThenElse) {
   auto loc = builder.getUnknownLoc();
   auto cdt = createCondition(builder);
   auto ifBuilder = builder.genIfThenElse(loc, cdt);
-  EXPECT_FALSE(ifBuilder.getIfOp().thenRegion().empty());
-  EXPECT_FALSE(ifBuilder.getIfOp().elseRegion().empty());
+  EXPECT_FALSE(ifBuilder.getIfOp().getThenRegion().empty());
+  EXPECT_FALSE(ifBuilder.getIfOp().getElseRegion().empty());
 }
 
 TEST_F(FIRBuilderTest, genIfWithThen) {
@@ -82,8 +82,8 @@ TEST_F(FIRBuilderTest, genIfWithThen) {
   auto loc = builder.getUnknownLoc();
   auto cdt = createCondition(builder);
   auto ifBuilder = builder.genIfOp(loc, {}, cdt, false);
-  EXPECT_FALSE(ifBuilder.getIfOp().thenRegion().empty());
-  EXPECT_TRUE(ifBuilder.getIfOp().elseRegion().empty());
+  EXPECT_FALSE(ifBuilder.getIfOp().getThenRegion().empty());
+  EXPECT_TRUE(ifBuilder.getIfOp().getElseRegion().empty());
 }
 
 TEST_F(FIRBuilderTest, genIfWithThenAndElse) {
@@ -91,8 +91,8 @@ TEST_F(FIRBuilderTest, genIfWithThenAndElse) {
   auto loc = builder.getUnknownLoc();
   auto cdt = createCondition(builder);
   auto ifBuilder = builder.genIfOp(loc, {}, cdt, true);
-  EXPECT_FALSE(ifBuilder.getIfOp().thenRegion().empty());
-  EXPECT_FALSE(ifBuilder.getIfOp().elseRegion().empty());
+  EXPECT_FALSE(ifBuilder.getIfOp().getThenRegion().empty());
+  EXPECT_FALSE(ifBuilder.getIfOp().getElseRegion().empty());
 }
 
 //===----------------------------------------------------------------------===//
@@ -107,7 +107,7 @@ TEST_F(FIRBuilderTest, genIsNotNull) {
   auto res = builder.genIsNotNull(loc, dummyValue);
   EXPECT_TRUE(mlir::isa<arith::CmpIOp>(res.getDefiningOp()));
   auto cmpOp = dyn_cast<arith::CmpIOp>(res.getDefiningOp());
-  EXPECT_EQ(arith::CmpIPredicate::ne, cmpOp.predicate());
+  EXPECT_EQ(arith::CmpIPredicate::ne, cmpOp.getPredicate());
 }
 
 TEST_F(FIRBuilderTest, genIsNull) {
@@ -118,7 +118,7 @@ TEST_F(FIRBuilderTest, genIsNull) {
   auto res = builder.genIsNull(loc, dummyValue);
   EXPECT_TRUE(mlir::isa<arith::CmpIOp>(res.getDefiningOp()));
   auto cmpOp = dyn_cast<arith::CmpIOp>(res.getDefiningOp());
-  EXPECT_EQ(arith::CmpIPredicate::eq, cmpOp.predicate());
+  EXPECT_EQ(arith::CmpIPredicate::eq, cmpOp.getPredicate());
 }
 
 TEST_F(FIRBuilderTest, createZeroConstant) {
@@ -147,7 +147,8 @@ TEST_F(FIRBuilderTest, createRealZeroConstant) {
   EXPECT_TRUE(mlir::isa<mlir::arith::ConstantOp>(cst.getDefiningOp()));
   auto cstOp = dyn_cast<mlir::arith::ConstantOp>(cst.getDefiningOp());
   EXPECT_EQ(realTy, cstOp.getType());
-  EXPECT_EQ(0u, cstOp.value().cast<FloatAttr>().getValue().convertToDouble());
+  EXPECT_EQ(
+      0u, cstOp.value().cast<FloatAttr>().getValue().convertToDouble());
 }
 
 TEST_F(FIRBuilderTest, createBool) {
@@ -184,14 +185,13 @@ TEST_F(FIRBuilderTest, createGlobal1) {
   auto global = builder.createGlobal(
       loc, i64Type, "global1", builder.createInternalLinkage(), {}, true);
   EXPECT_TRUE(mlir::isa<fir::GlobalOp>(global));
-  EXPECT_EQ("global1", global.sym_name());
-  EXPECT_TRUE(global.constant().hasValue());
-  EXPECT_EQ(i64Type, global.type());
-  EXPECT_TRUE(global.linkName().hasValue());
-  EXPECT_EQ(
-      builder.createInternalLinkage().getValue(), global.linkName().getValue());
-  EXPECT_FALSE(global.initVal().hasValue());
-
+  EXPECT_EQ("global1", global.getSymName());
+  EXPECT_TRUE(global.getConstant().hasValue());
+  EXPECT_EQ(i64Type, global.getType());
+  EXPECT_TRUE(global.getLinkName().hasValue());
+  EXPECT_EQ(builder.createInternalLinkage().getValue(),
+      global.getLinkName().getValue());
+  EXPECT_FALSE(global.getInitVal().hasValue());
   auto g1 = builder.getNamedGlobal("global1");
   EXPECT_EQ(global, g1);
   auto g2 = builder.getNamedGlobal("global7");
@@ -208,16 +208,19 @@ TEST_F(FIRBuilderTest, createGlobal2) {
   auto global = builder.createGlobal(
       loc, i32Type, "global2", builder.createLinkOnceLinkage(), attr, false);
   EXPECT_TRUE(mlir::isa<fir::GlobalOp>(global));
-  EXPECT_EQ("global2", global.sym_name());
-  EXPECT_FALSE(global.constant().hasValue());
-  EXPECT_EQ(i32Type, global.type());
-  EXPECT_TRUE(global.initVal().hasValue());
-  EXPECT_TRUE(global.initVal().getValue().isa<mlir::IntegerAttr>());
+  EXPECT_EQ("global2", global.getSymName());
+  EXPECT_FALSE(global.getConstant().hasValue());
+  EXPECT_EQ(i32Type, global.getType());
+  EXPECT_TRUE(global.getInitVal().hasValue());
+  EXPECT_TRUE(global.getInitVal().getValue().isa<mlir::IntegerAttr>());
   EXPECT_EQ(
       16, global.initVal().getValue().cast<mlir::IntegerAttr>().getValue());
   EXPECT_TRUE(global.linkName().hasValue());
   EXPECT_EQ(
-      builder.createLinkOnceLinkage().getValue(), global.linkName().getValue());
+      16, global.getInitVal().getValue().cast<mlir::IntegerAttr>().getValue());
+  EXPECT_TRUE(global.getLinkName().hasValue());
+  EXPECT_EQ(builder.createLinkOnceLinkage().getValue(),
+      global.getLinkName().getValue());
 }
 
 TEST_F(FIRBuilderTest, uniqueCFIdent) {
@@ -262,7 +265,7 @@ TEST_F(FIRBuilderTest, locationToFilename) {
       mlir::FileLineColLoc::get(builder.getIdentifier("file1.f90"), 10, 5);
   mlir::Value locToFile = fir::factory::locationToFilename(builder, loc);
   auto addrOp = dyn_cast<fir::AddrOfOp>(locToFile.getDefiningOp());
-  auto symbol = addrOp.symbol().getRootReference().getValue();
+  auto symbol = addrOp.getSymbol().getRootReference().getValue();
   auto global = builder.getNamedGlobal(symbol);
   auto stringLitOps = global.getRegion().front().getOps<fir::StringLitOp>();
   EXPECT_TRUE(llvm::hasSingleElement(stringLitOps));
@@ -304,12 +307,12 @@ TEST_F(FIRBuilderTest, createStringLiteral) {
   auto addr = charBox->getBuffer();
   EXPECT_TRUE(mlir::isa<fir::AddrOfOp>(addr.getDefiningOp()));
   auto addrOp = dyn_cast<fir::AddrOfOp>(addr.getDefiningOp());
-  auto symbol = addrOp.symbol().getRootReference().getValue();
+  auto symbol = addrOp.getSymbol().getRootReference().getValue();
   auto global = builder.getNamedGlobal(symbol);
-  EXPECT_EQ(
-      builder.createLinkOnceLinkage().getValue(), global.linkName().getValue());
+  EXPECT_EQ(builder.createLinkOnceLinkage().getValue(),
+      global.getLinkName().getValue());
   EXPECT_EQ(fir::CharacterType::get(builder.getContext(), 1, strValue.size()),
-      global.type());
+      global.getType());
 
   auto stringLitOps = global.getRegion().front().getOps<fir::StringLitOp>();
   EXPECT_TRUE(llvm::hasSingleElement(stringLitOps));
@@ -328,13 +331,13 @@ TEST_F(FIRBuilderTest, allocateLocal) {
       loc, builder.getI64Type(), "", varName, {}, {}, false);
   EXPECT_TRUE(mlir::isa<fir::AllocaOp>(var.getDefiningOp()));
   auto allocaOp = dyn_cast<fir::AllocaOp>(var.getDefiningOp());
-  EXPECT_EQ(builder.getI64Type(), allocaOp.in_type());
-  EXPECT_TRUE(allocaOp.bindc_name().hasValue());
-  EXPECT_EQ(varName, allocaOp.bindc_name().getValue());
-  EXPECT_FALSE(allocaOp.uniq_name().hasValue());
-  EXPECT_FALSE(allocaOp.pinned());
-  EXPECT_EQ(0u, allocaOp.typeparams().size());
-  EXPECT_EQ(0u, allocaOp.shape().size());
+  EXPECT_EQ(builder.getI64Type(), allocaOp.getInType());
+  EXPECT_TRUE(allocaOp.getBindcName().hasValue());
+  EXPECT_EQ(varName, allocaOp.getBindcName().getValue());
+  EXPECT_FALSE(allocaOp.getUniqName().hasValue());
+  EXPECT_FALSE(allocaOp.getPinned());
+  EXPECT_EQ(0u, allocaOp.getTypeparams().size());
+  EXPECT_EQ(0u, allocaOp.getShape().size());
 }
 
 static void checkShapeOp(mlir::Value shape, mlir::Value c10, mlir::Value c100) {

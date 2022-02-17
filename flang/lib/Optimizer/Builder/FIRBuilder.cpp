@@ -43,6 +43,11 @@ mlir::FuncOp fir::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
   return modOp.lookupSymbol<mlir::FuncOp>(name);
 }
 
+mlir::FuncOp fir::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
+                                                 mlir::SymbolRefAttr symbol) {
+  return modOp.lookupSymbol<mlir::FuncOp>(symbol);
+}
+
 fir::GlobalOp fir::FirOpBuilder::getNamedGlobal(mlir::ModuleOp modOp,
                                                 llvm::StringRef name) {
   return modOp.lookupSymbol<fir::GlobalOp>(name);
@@ -302,10 +307,18 @@ fir::FirOpBuilder::convertWithSemantics(mlir::Location loc, mlir::Type toTy,
       // argument in characters and use it as the length of the string
       auto refType = getRefType(boxType.getEleTy());
       mlir::Value charBase = createConvert(loc, refType, val);
-      mlir::Value unknownLen = this->create<fir::UndefOp>(loc, getIndexType());
+      mlir::Value unknownLen = create<fir::UndefOp>(loc, getIndexType());
       fir::factory::CharacterExprHelper charHelper{*this, loc};
       return charHelper.createEmboxChar(charBase, unknownLen);
     }
+  }
+  if (fir::isa_ref_type(toTy) && fir::isa_box_type(fromTy)) {
+    // Call is expecting a raw data pointer, not a box. Get the data pointer out
+    // of the box and pass that.
+    assert((fir::unwrapRefType(toTy) ==
+                fir::unwrapRefType(fir::unwrapPassByRefType(fromTy)) &&
+            "element types expected to match"));
+    return create<fir::BoxAddrOp>(loc, toTy, val);
   }
 
   return createConvert(loc, toTy, val);
@@ -533,10 +546,9 @@ mlir::Value fir::factory::readCharLen(fir::FirOpBuilder &builder,
         return fir::factory::CharacterExprHelper{builder, loc}
             .readLengthFromBox(x.getAddr());
       },
-      [&](const fir::MutableBoxValue &) -> mlir::Value {
-        // MutableBoxValue must be read into another category to work with them
-        // outside of allocation/assignment contexts.
-        fir::emitFatalError(loc, "readCharLen on MutableBoxValue");
+      [&](const fir::MutableBoxValue &x) -> mlir::Value {
+        return readCharLen(builder, loc,
+                           fir::factory::genMutableBoxRead(builder, loc, x));
       },
       [&](const auto &) -> mlir::Value {
         fir::emitFatalError(
@@ -567,16 +579,16 @@ mlir::Value fir::factory::readExtent(fir::FirOpBuilder &builder,
             .getResult(1);
       },
       [&](const fir::MutableBoxValue &x) -> mlir::Value {
-        // MutableBoxValue must be read into another category to work with them
-        // outside of allocation/assignment contexts.
-        fir::emitFatalError(loc, "readExtents on MutableBoxValue");
+        return readExtent(builder, loc,
+                          fir::factory::genMutableBoxRead(builder, loc, x),
+                          dim);
       },
       [&](const auto &) -> mlir::Value {
         fir::emitFatalError(loc, "extent inquiry on scalar");
       });
 }
 
-mlir::Value fir::factory::readLowerBound(fir::FirOpBuilder &,
+mlir::Value fir::factory::readLowerBound(fir::FirOpBuilder &builder,
                                          mlir::Location loc,
                                          const fir::ExtendedValue &box,
                                          unsigned dim,
@@ -592,10 +604,10 @@ mlir::Value fir::factory::readLowerBound(fir::FirOpBuilder &,
       [&](const fir::BoxValue &x) -> mlir::Value {
         return x.getLBounds().empty() ? mlir::Value{} : x.getLBounds()[dim];
       },
-      [&](const fir::MutableBoxValue &) -> mlir::Value {
-        // MutableBoxValue must be read into another category to work with them
-        // outside of allocation/assignment contexts.
-        fir::emitFatalError(loc, "readLowerBound on MutableBoxValue");
+      [&](const fir::MutableBoxValue &x) -> mlir::Value {
+        return readLowerBound(builder, loc,
+                              fir::factory::genMutableBoxRead(builder, loc, x),
+                              dim, defaultValue);
       },
       [&](const auto &) -> mlir::Value {
         fir::emitFatalError(loc, "lower bound inquiry on scalar");

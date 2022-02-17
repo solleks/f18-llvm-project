@@ -486,16 +486,11 @@ subroutine test_runtime_shape(x)
 ! CHECK-NOT: fir.call @_QPreturn_pointer()
 
 ! CHECK:  fir.if %[[VAL_19]]#0 {
-! CHECK:    %[[VAL_51:.*]] = fir.load %[[VAL_0]] : !fir.ref<!fir.box<!fir.heap<!fir.array<?x?xf32>>>>
-! CHECK:    %[[VAL_52:.*]] = arith.constant 0 : index
-! CHECK:    %[[VAL_53:.*]]:3 = fir.box_dims %[[VAL_51]], %[[VAL_52]] : (!fir.box<!fir.heap<!fir.array<?x?xf32>>>, index) -> (index, index, index)
-! CHECK:    %[[VAL_54:.*]] = arith.constant 1 : index
-! CHECK:    %[[VAL_55:.*]]:3 = fir.box_dims %[[VAL_51]], %[[VAL_54]] : (!fir.box<!fir.heap<!fir.array<?x?xf32>>>, index) -> (index, index, index)
 ! CHECK:    fir.if %[[VAL_18]] {
 ! CHECK:      fir.freemem %[[VAL_15]] : !fir.heap<!fir.array<?x?xf32>>
 ! CHECK:    }
-! CHECK:    %[[VAL_56:.*]] = fir.shape_shift %[[VAL_53]]#0, %[[VAL_11]]#1, %[[VAL_55]]#0, %[[VAL_13]]#1 : (index, index, index, index) -> !fir.shapeshift<2>
-! CHECK:    %[[VAL_57:.*]] = fir.embox %[[VAL_19]]#1(%[[VAL_56]]) : (!fir.heap<!fir.array<?x?xf32>>, !fir.shapeshift<2>) -> !fir.box<!fir.heap<!fir.array<?x?xf32>>>
+! CHECK:    %[[VAL_56:.*]] = fir.shape %[[VAL_11]]#1, %[[VAL_13]]#1 : (index, index) -> !fir.shape<2>
+! CHECK:    %[[VAL_57:.*]] = fir.embox %[[VAL_19]]#1(%[[VAL_56]]) : (!fir.heap<!fir.array<?x?xf32>>, !fir.shape<2>) -> !fir.box<!fir.heap<!fir.array<?x?xf32>>>
 ! CHECK:    fir.store %[[VAL_57]] to %[[VAL_0]] : !fir.ref<!fir.box<!fir.heap<!fir.array<?x?xf32>>>>
 ! CHECK:  }
   x = return_pointer()
@@ -509,7 +504,9 @@ subroutine test_scalar_rhs(x, y)
   ! CHECK:   fir.if %false -> {{.*}} {
   ! CHECK:   }
   ! CHECK: } else {
-  ! TODO: runtime error if unallocated
+  ! CHECK: %[[error_msg_addr:.*]] = fir.address_of(@[[error_message:.*]]) : !fir.ref<!fir.char<1,76>>
+  ! CHECK: %[[msg_addr_cast:.*]] = fir.convert %[[error_msg_addr]] : (!fir.ref<!fir.char<1,76>>) -> !fir.ref<i8>
+  ! CHECK: %15 = fir.call @_FortranAReportFatalUserError(%[[msg_addr_cast]], %{{.*}}, %{{.*}}) : (!fir.ref<i8>, !fir.ref<i8>, i32) -> none
   ! CHECK-NOT: allocmem
   ! CHECK: }
   x = y
@@ -661,6 +658,33 @@ subroutine test_dyn_char(x, n, c)
 ! CHECK:  }
   x = c
 end subroutine
+
+! CHECK-LABEL: func @_QMalloc_assignPtest_derived_with_init
+subroutine test_derived_with_init(x, y)
+  type t 
+    integer, allocatable :: a(:)
+  end type                                                                                     
+  type(t), allocatable :: x                                                                    
+  type(t) :: y                                                                                 
+  ! The allocatable component of `x` need to be initialized
+  ! during the automatic allocation (setting its rank and allocation
+  ! status) before it is assigned with the component of `y` 
+  x = y
+! CHECK:  fir.if %{{.*}} {
+! CHECK:    %[[VAL_11:.*]] = fir.allocmem !fir.type<_QMalloc_assignFtest_derived_with_initTt{a:!fir.box<!fir.heap<!fir.array<?xi32>>>}> {uniq_name = ".auto.alloc"}
+! CHECK:    %[[VAL_12:.*]] = fir.embox %[[VAL_11]] : (!fir.heap<!fir.type<_QMalloc_assignFtest_derived_with_initTt{a:!fir.box<!fir.heap<!fir.array<?xi32>>>}>>) -> !fir.box<!fir.heap<!fir.type<_QMalloc_assignFtest_derived_with_initTt{a:!fir.box<!fir.heap<!fir.array<?xi32>>>}>>>
+! CHECK:    %[[VAL_15:.*]] = fir.convert %[[VAL_12]] : (!fir.box<!fir.heap<!fir.type<_QMalloc_assignFtest_derived_with_initTt{a:!fir.box<!fir.heap<!fir.array<?xi32>>>}>>>) -> !fir.box<none>
+! CHECK:    fir.call @_FortranAInitialize(%[[VAL_15]], %{{.*}}, %{{.*}}) : (!fir.box<none>, !fir.ref<i8>, i32) -> none
+! CHECK:    fir.result %[[VAL_11]] : !fir.heap<!fir.type<_QMalloc_assignFtest_derived_with_initTt{a:!fir.box<!fir.heap<!fir.array<?xi32>>>}>>
+! CHECK:  } else {
+! CHECK:    fir.result %{{.*}} : !fir.heap<!fir.type<_QMalloc_assignFtest_derived_with_initTt{a:!fir.box<!fir.heap<!fir.array<?xi32>>>}>>
+! CHECK:  }
+end subroutine
+
+! CHECK: fir.global linkonce @[[error_message]] constant : !fir.char<1,76> {
+! CHECK:   %[[msg:.*]] = fir.string_lit "array left hand side must be allocated when the right hand side is a scalar\00"(76) : !fir.char<1,76>
+! CHECK:   fir.has_value %[[msg:.*]] : !fir.char<1,76>
+! CHECK: }
 
 end module
 

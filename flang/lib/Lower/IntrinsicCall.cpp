@@ -477,6 +477,7 @@ struct IntrinsicLibrary {
   mlir::Value genFraction(mlir::Type resultType,
                           mlir::ArrayRef<mlir::Value> args);
   void genGetCommandArgument(mlir::ArrayRef<fir::ExtendedValue> args);
+  void genGetEnvironmentVariable(llvm::ArrayRef<fir::ExtendedValue>);
   mlir::Value genIand(mlir::Type, llvm::ArrayRef<mlir::Value>);
   mlir::Value genIbclr(mlir::Type, llvm::ArrayRef<mlir::Value>);
   mlir::Value genIbits(mlir::Type, llvm::ArrayRef<mlir::Value>);
@@ -730,6 +731,15 @@ static constexpr IntrinsicHandler handlers[]{
        {"status", asAddr},
        {"errmsg", asAddr}}},
      /*isElemental=*/false},
+    {"get_environment_variable",
+     &I::genGetEnvironmentVariable,
+     {{{"name", asValue},
+       {"value", asAddr},
+       {"length", asAddr},
+       {"status", asAddr},
+       {"trim_name", asValue},
+       {"errmsg", asAddr}}},
+     /*isElemental=*/false},
     {"iachar", &I::genIchar},
     {"iand", &I::genIand},
     {"ibclr", &I::genIbclr},
@@ -750,7 +760,10 @@ static constexpr IntrinsicHandler handlers[]{
      &I::genLbound,
      {{{"array", asInquired}, {"dim", asValue}, {"kind", asValue}}},
      /*isElemental=*/false},
-    {"len", &I::genLen},
+    {"len",
+     &I::genLen,
+     {{{"string", asInquired}, {"kind", asValue}}},
+     /*isElemental=*/false},
     {"len_trim", &I::genLenTrim},
     {"lge", &I::genCharacterCompare<mlir::arith::CmpIPredicate::sge>},
     {"lgt", &I::genCharacterCompare<mlir::arith::CmpIPredicate::sgt>},
@@ -1278,8 +1291,30 @@ static mlir::FuncOp getRuntimeFunction(mlir::Location loc,
     return exactMatch;
 
   if (bestNearMatch != nullptr) {
-    assert(!bestMatchDistance.isLosingPrecision() &&
-           "runtime selection loses precision");
+    if (bestMatchDistance.isLosingPrecision()) {
+      // Using this runtime version requires narrowing the arguments
+      // or extending the result. It is not numerically safe. There
+      // is currently no quad math library that was described in
+      // lowering and could be used here. Emit an error and continue
+      // generating the code with the narrowing cast so that the user
+      // can get a complete list of the problematic intrinsic calls.
+      std::string message("TODO: no math runtime available for '");
+      llvm::raw_string_ostream sstream(message);
+      if (name == "pow") {
+        assert(funcType.getNumInputs() == 2 &&
+               "power operator has two arguments");
+        sstream << funcType.getInput(0) << " ** " << funcType.getInput(1);
+      } else {
+        sstream << name << "(";
+        if (funcType.getNumInputs() > 0)
+          sstream << funcType.getInput(0);
+        for (mlir::Type argType : funcType.getInputs().drop_front())
+          sstream << ", " << argType;
+        sstream << ")";
+      }
+      sstream << "'";
+      mlir::emitError(loc, message);
+    }
     return getFuncOp(loc, builder, *bestNearMatch);
   }
   return {};
@@ -1331,7 +1366,7 @@ fir::ExtendedValue toExtendedValue(mlir::Value val, fir::FirOpBuilder &builder,
     if (extents.size() + 1 < arrayType.getShape().size())
       mlir::emitError(loc, "cannot retrieve array extents from type");
   } else if (type.isa<fir::BoxType>() || type.isa<fir::RecordType>()) {
-    mlir::emitError(loc, "descriptor or derived type not yet handled");
+    fir::emitFatalError(loc, "descriptor or derived type not yet handled");
   }
 
   if (!extents.empty())
@@ -2377,6 +2412,59 @@ void IntrinsicLibrary::genGetCommandArgument(
                                       status, errmsg);
 }
 
+// GET_ENVIRONMENT_VARIABLE
+void IntrinsicLibrary::genGetEnvironmentVariable(
+    llvm::ArrayRef<fir::ExtendedValue> args) {
+  assert(args.size() == 6);
+
+  auto processCharBox = [&](llvm::Optional<fir::CharBoxValue> arg,
+                            mlir::Value &value) -> void {
+    if (arg.hasValue()) {
+      value = builder.createBox(loc, *arg);
+    } else {
+      value = builder
+                  .create<fir::AbsentOp>(
+                      loc, fir::BoxType::get(builder.getNoneType()))
+                  .getResult();
+    }
+  };
+
+  // Handle NAME argument
+  mlir::Value name;
+  if (const fir::CharBoxValue *charBox = args[0].getCharBox()) {
+    llvm::Optional<fir::CharBoxValue> nameBox = *charBox;
+    assert(nameBox.hasValue());
+    name = builder.createBox(loc, *nameBox);
+  }
+
+  // Handle optional VALUE argument
+  mlir::Value value;
+  llvm::Optional<fir::CharBoxValue> valBox;
+  if (const fir::CharBoxValue *charBox = args[1].getCharBox())
+    valBox = *charBox;
+  processCharBox(valBox, value);
+
+  // Handle optional LENGTH argument
+  mlir::Value length = fir::getBase(args[2]);
+
+  // Handle optional STATUS argument
+  mlir::Value status = fir::getBase(args[3]);
+
+  // Handle optional TRIM_NAME argument
+  mlir::Value trim_name =
+      isAbsent(args[4]) ? builder.createBool(loc, true) : fir::getBase(args[4]);
+
+  // Handle optional ERRMSG argument
+  mlir::Value errmsg;
+  llvm::Optional<fir::CharBoxValue> errmsgBox;
+  if (const fir::CharBoxValue *charBox = args[5].getCharBox())
+    errmsgBox = *charBox;
+  processCharBox(errmsgBox, errmsg);
+
+  fir::runtime::genGetEnvironmentVariable(builder, loc, name, value, length,
+                                          status, trim_name, errmsg);
+}
+
 // IAND
 mlir::Value IntrinsicLibrary::genIand(mlir::Type resultType,
                                       llvm::ArrayRef<mlir::Value> args) {
@@ -2645,14 +2733,7 @@ IntrinsicLibrary::genLen(mlir::Type resultType,
                          llvm::ArrayRef<fir::ExtendedValue> args) {
   // Optional KIND argument reflected in result type and otherwise ignored.
   assert(args.size() == 1 || args.size() == 2);
-  mlir::Value len = args[0].match(
-      [](const fir::CharBoxValue &box) { return box.getLen(); },
-      [](const fir::CharArrayBoxValue &box) { return box.getLen(); },
-      [&](const auto &) {
-        return fir::factory::CharacterExprHelper(builder, loc)
-            .createUnboxChar(fir::getBase(args[0]))
-            .second;
-      });
+  mlir::Value len = fir::factory::readCharLen(builder, loc, args[0]);
   return builder.createConvert(loc, resultType, len);
 }
 
@@ -3220,13 +3301,36 @@ IntrinsicLibrary::genLbound(mlir::Type resultType,
 fir::ExtendedValue
 IntrinsicLibrary::genUbound(mlir::Type resultType,
                             llvm::ArrayRef<fir::ExtendedValue> args) {
-  assert(args.size() == 3);
-  mlir::Value extent = fir::getBase(genSize(resultType, args));
-  mlir::Value lbound = fir::getBase(genLbound(resultType, args));
+  assert(args.size() == 3 || args.size() == 2);
+  if (args.size() == 3) {
+    // Handle calls to UBOUND with the DIM argument, which return a scalar
+    mlir::Value extent = fir::getBase(genSize(resultType, args));
+    mlir::Value lbound = fir::getBase(genLbound(resultType, args));
 
-  mlir::Value one = builder.createIntegerConstant(loc, resultType, 1);
-  mlir::Value ubound = builder.create<mlir::arith::SubIOp>(loc, lbound, one);
-  return builder.create<mlir::arith::AddIOp>(loc, ubound, extent);
+    mlir::Value one = builder.createIntegerConstant(loc, resultType, 1);
+    mlir::Value ubound = builder.create<mlir::arith::SubIOp>(loc, lbound, one);
+    return builder.create<mlir::arith::AddIOp>(loc, ubound, extent);
+  } else {
+    // Handle calls to UBOUND without the DIM argument, which return an array
+    mlir::Value kind = isAbsent(args[1])
+                           ? builder.createIntegerConstant(
+                                 loc, builder.getIndexType(),
+                                 builder.getKindMap().defaultIntegerKind())
+                           : fir::getBase(args[1]);
+
+    // Create mutable fir.box to be passed to the runtime for the result.
+    mlir::Type type = builder.getVarLenSeqTy(resultType, /*rank=*/1);
+    fir::MutableBoxValue resultMutableBox =
+        fir::factory::createTempMutableBox(builder, loc, type);
+    mlir::Value resultIrBox =
+        fir::factory::getMutableIRBox(builder, loc, resultMutableBox);
+
+    fir::runtime::genUbound(builder, loc, resultIrBox, fir::getBase(args[0]),
+                            kind);
+
+    return readAndAddCleanUp(resultMutableBox, resultType, "UBOUND");
+  }
+  return mlir::Value();
 }
 
 // SPACING

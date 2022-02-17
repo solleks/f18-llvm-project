@@ -169,14 +169,13 @@ def fir_AllocaOp : fir_Op<"alloca", [AttrSizedOperandSegments,
 
   let extraClassDeclaration = [{
     mlir::Type getAllocatedType();
-    bool hasLenParams() { return !typeparams().empty(); }
-    bool hasShapeOperands() { return !shape().empty(); }
-    unsigned numLenParams() { return typeparams().size(); }
-    operand_range getLenParams() { return typeparams(); }
-    unsigned numShapeOperands() { return shape().size(); }
-    operand_range getShapeOperands() { return shape(); }
+    bool hasLenParams() { return !getTypeparams().empty(); }
+    bool hasShapeOperands() { return !getShape().empty(); }
+    unsigned numLenParams() { return getTypeparams().size(); }
+    operand_range getLenParams() { return getTypeparams(); }
+    unsigned numShapeOperands() { return getShape().size(); }
+    operand_range getShapeOperands() { return getShape(); }
     static mlir::Type getRefTy(mlir::Type ty);
-    mlir::Type getInType() { return in_type(); }
   }];
 }
 
@@ -227,14 +226,13 @@ def fir_AllocMemOp : fir_Op<"allocmem",
 
   let extraClassDeclaration = [{
     mlir::Type getAllocatedType();
-    bool hasLenParams() { return !typeparams().empty(); }
-    bool hasShapeOperands() { return !shape().empty(); }
-    unsigned numLenParams() { return typeparams().size(); }
-    operand_range getLenParams() { return typeparams(); }
-    unsigned numShapeOperands() { return shape().size(); }
-    operand_range getShapeOperands() { return shape(); }
+    bool hasLenParams() { return !getTypeparams().empty(); }
+    bool hasShapeOperands() { return !getShape().empty(); }
+    unsigned numLenParams() { return getTypeparams().size(); }
+    operand_range getLenParams() { return getTypeparams(); }
+    unsigned numShapeOperands() { return getShape().size(); }
+    operand_range getShapeOperands() { return getShape(); }
     static mlir::Type getRefTy(mlir::Type ty);
-    mlir::Type getInType() { return in_type(); }
   }];
 }
 
@@ -482,7 +480,6 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
     }
 
     // The selector is the value being tested to determine the destination
-    mlir::Value getSelector() { return selector(); }
     mlir::Value getSelector(llvm::ArrayRef<mlir::Value> operands) {
       return operands[0];
     }
@@ -884,10 +881,8 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect, AttrSizedOperandSegments]> {
   let verifier = "return ::verify(*this);";
 
   let extraClassDeclaration = [{
-    mlir::Value getShape() { return shape(); }
-    mlir::Value getSlice() { return slice(); }
-    bool hasLenParams() { return !typeparams().empty(); }
-    unsigned numLenParams() { return typeparams().size(); }
+    bool hasLenParams() { return !getTypeparams().empty(); }
+    unsigned numLenParams() { return getTypeparams().size(); }
   }];
 }
 
@@ -986,7 +981,8 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]> {
     then the form takes only the procedure's symbol.
 
     ```mlir
-      %0 = fir.emboxproc @f : ((i32) -> i32) -> !fir.boxproc<(i32) -> i32>
+      %f = ... : (i32) -> i32
+      %0 = fir.emboxproc %f : ((i32) -> i32) -> !fir.boxproc<(i32) -> i32>
     ```
 
     An internal procedure requiring a host instance for correct execution uses
@@ -996,20 +992,24 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]> {
     promotion of local values.
 
     ```mlir
-      %4 = ... : !fir.ref<tuple<i32, i32>>
-      %5 = fir.emboxproc @g, %4 : ((i32) -> i32, !fir.ref<tuple<i32, i32>>) -> !fir.boxproc<(i32) -> i32>
+      %4 = ... : !fir.ref<tuple<!fir.ref<i32>, !fir.ref<i32>>>
+      %g = ... : (i32) -> i32
+      %5 = fir.emboxproc %g, %4 : ((i32) -> i32, !fir.ref<tuple<!fir.ref<i32>, !fir.ref<i32>>>) -> !fir.boxproc<(i32) -> i32>
     ```
   }];
 
-  let arguments = (ins SymbolRefAttr:$funcname, AnyReferenceLike:$host);
-
+  let arguments = (ins FuncType:$func, Optional<fir_ReferenceType>:$host);
   let results = (outs fir_BoxProcType);
 
-  let parser = "return parseEmboxProcOp(parser, result);";
-
-  let printer = "::print(p, *this);";
+  let assemblyFormat = [{
+    $func (`,` $host^)? attr-dict `:` functional-type(operands, results)
+  }];
 
   let verifier = "return ::verify(*this);";
+
+  let extraClassDeclaration = [{
+    mlir::Value host() const { return {}; }
+  }];
 }
 
 def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]> {
@@ -1021,7 +1021,7 @@ def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]> {
 
     ```mlir
       %45   = ... : !fir.boxchar<1>
-      %46:2 = fir.unboxchar %45 : (!fir.boxchar<1>) -> (!fir.ref<!fir.character<1>>, i32)
+      %46:2 = fir.unboxchar %45 : (!fir.boxchar<1>) -> (!fir.ref<!fir.char<1>>, i32)
     ```
   }];
 
@@ -1062,13 +1062,13 @@ def fir_BoxAddrOp : fir_SimpleOneResultOp<"box_addr", [NoSideEffect]> {
     ```mlir
       %51 = fir.box_addr %box : (!fir.box<f64>) -> !fir.ref<f64>
       %52 = fir.box_addr %boxchar : (!fir.boxchar<1>) -> !fir.ref<!fir.char<1>>
-      %53 = fir.box_addr %boxproc : (!fir.boxproc<!P>) -> !fir.ref<!P>
+      %53 = fir.box_addr %boxproc : (!fir.boxproc<!P>) -> !P
     ```
   }];
 
-  let arguments = (ins fir_BoxType:$val);
+  let arguments = (ins AnyBoxLike:$val);
 
-  let results = (outs AnyReferenceLike);
+  let results = (outs AnyCodeOrDataRefLike);
 
   let hasFolder = 1;
 }
@@ -1532,7 +1532,14 @@ def fir_ArrayAccessOp : fir_Op<"array_access", [AttrSizedOperandSegments,
   let summary = "Fetch the reference of an element of an array value";
 
   let description = [{
-    Fetch the memory reference of an element in an array value.
+    The `array_access` provides a reference to a single element from an array
+    value. This is *not* a view in the immutable array, otherwise it couldn't
+    be stored to. It can be see as a logical copy of the element and its
+    position in the array. This reference can be written to and modified without
+    changing the original array.
+
+    The `array_access` operation is used to fetch the memory reference of an
+    element in an array value.
 
     ```fortran
       real :: a(n,m)
@@ -1554,7 +1561,16 @@ def fir_ArrayAccessOp : fir_Op<"array_access", [AttrSizedOperandSegments,
       %1 = fir.array_access %v, %i, %j : (!fir.array<?x?xf32>, index, index) -> !fir.ref<f32>
     ```
 
-    It is only possible to use `array_access` on an `array_load` result value.
+    It is only possible to use `array_access` on an `array_load` result value or
+    a value that can be trace back transitively to an `array_load` as the
+    dominating source. Other array operation such as `array_amend` can be in
+    between.
+
+    TODO: The above restriction is not enforced. The design of the operation
+    might need to be revisited to avoid such restructions.
+
+    More information about `array_access` and other array operations can be
+    found in flang/docs/FIRArrayOperations.md.
   }];
 
   let arguments = (ins
@@ -1577,8 +1593,10 @@ def fir_ArrayAmendOp : fir_Op<"array_amend", [NoSideEffect]> {
   let summary = "Mark an array value as having been changed by reference.";
 
   let description = [{
-    Marks an array value as having been changed via a reference. The reference
-    into the array value is obtained via an fir.array_access op.
+    The `array_amend` operation marks an array value as having been changed via
+    a reference obtained by an `array_access`. It acts as a logical transaction
+    log that is used to merge the final result back with an `array_merge_store`
+    operation.
 
     ```mlir
       // fetch the value of one of the array value's elements
@@ -1588,6 +1606,9 @@ def fir_ArrayAmendOp : fir_Op<"array_amend", [NoSideEffect]> {
       // mark the array value
       %new_v = fir.array_amend %v, %2 : (!fir.array<?x?xT>, !fir.ref<T>) -> !fir.array<?x?xT>
     ```
+    
+    More information about `array_amend` and other array operations can be
+    found in flang/docs/FIRArrayOperations.md.
   }];
 
   let arguments = (ins
@@ -1736,11 +1757,6 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]> {
     [{ return build($_builder, $_state, resultType, ref, coor,
            mlir::TypeAttr::get(ref.getType())); }]>,
   ];
-
-  let extraClassDeclaration = [{
-    /// Get the type of the base object.
-    mlir::Type getBaseType() { return baseType(); }
-  }];
 }
 
 def fir_ExtractValueOp : fir_OneResultOp<"extract_value", [NoSideEffect]> {
@@ -1805,7 +1821,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef getFieldAttrName() { return "field_id"; }
     static constexpr llvm::StringRef getTypeAttrName() { return "on_type"; }
-    llvm::StringRef getFieldName() { return field_id(); }
+    llvm::StringRef getFieldName() { return getFieldId(); }
     llvm::SmallVector<mlir::Attribute> getAttributes();
   }];
 }
@@ -1835,12 +1851,6 @@ def fir_ShapeOp : fir_Op<"shape", [NoSideEffect]> {
   }];
 
   let verifier = "return ::verify(*this);";
-
-  let extraClassDeclaration = [{
-    std::vector<mlir::Value> getExtents() {
-      return {extents().begin(), extents().end()};
-    }
-  }];
 }
 
 def fir_ShapeShiftOp : fir_Op<"shape_shift", [NoSideEffect]> {
@@ -1876,7 +1886,7 @@ def fir_ShapeShiftOp : fir_Op<"shape_shift", [NoSideEffect]> {
     // Logically unzip the origins from the extent values.
     std::vector<mlir::Value> getOrigins() {
       std::vector<mlir::Value> result;
-      for (auto i : llvm::enumerate(pairs()))
+      for (auto i : llvm::enumerate(getPairs()))
         if (!(i.index() & 1))
           result.push_back(i.value());
       return result;
@@ -1885,7 +1895,7 @@ def fir_ShapeShiftOp : fir_Op<"shape_shift", [NoSideEffect]> {
     // Logically unzip the extents from the origin values.
     std::vector<mlir::Value> getExtents() {
       std::vector<mlir::Value> result;
-      for (auto i : llvm::enumerate(pairs()))
+      for (auto i : llvm::enumerate(getPairs()))
         if (i.index() & 1)
           result.push_back(i.value());
       return result;
@@ -1918,12 +1928,6 @@ def fir_ShiftOp : fir_Op<"shift", [NoSideEffect]> {
   }];
 
   let verifier = "return ::verify(*this);";
-
-  let extraClassDeclaration = [{
-    std::vector<mlir::Value> getOrigins() {
-      return {origins().begin(), origins().end()};
-    }
-  }];
 }
 
 def fir_SliceOp : fir_Op<"slice", [NoSideEffect, AttrSizedOperandSegments]> {
@@ -1940,7 +1944,8 @@ def fir_SliceOp : fir_Op<"slice", [NoSideEffect, AttrSizedOperandSegments]> {
     specified.  The extent must be nonnegative and the stride must not be zero.
 
     ```mlir
-      %d = fir.slice %lo, %hi, %step : (index, index, index) -> !fir.slice<1>
+      %d = fir.slice %lo, %hi, %step :
+          (index, index, index) -> !fir.slice<1>
     ```
 
     To support generalized slicing of Fortran's dynamic derived types, a slice
@@ -1949,7 +1954,8 @@ def fir_SliceOp : fir_Op<"slice", [NoSideEffect, AttrSizedOperandSegments]> {
 
     ```mlir
       %fld = fir.field_index component, !fir.type<t{...component:ct...}>
-      %d = fir.slice %lo, %hi, %step path %fld : (index, index, index, !fir.field) -> !fir.slice<1>
+      %d = fir.slice %lo, %hi, %step path %fld :
+          (index, index, index, !fir.field) -> !fir.slice<1>
     ```
 
     Projections of `!fir.char` type can be further narrowed to invariant
@@ -1982,7 +1988,7 @@ def fir_SliceOp : fir_Op<"slice", [NoSideEffect, AttrSizedOperandSegments]> {
   let verifier = "return ::verify(*this);";
 
   let extraClassDeclaration = [{
-    unsigned getOutRank() { return getOutputRank(triples()); }
+    unsigned getOutRank() { return getOutputRank(getTriples()); }
     static unsigned getOutputRank(mlir::ValueRange triples);
   }];
 }
@@ -2085,7 +2091,7 @@ def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef getFieldAttrName() { return "field_id"; }
     static constexpr llvm::StringRef getTypeAttrName() { return "on_type"; }
-    mlir::Type getOnType() {
+    mlir::Type getOnTypeAttrType() {
       return (*this)->getAttrOfType<TypeAttr>(getTypeAttrName()).getValue();
     }
   }];
@@ -2169,10 +2175,10 @@ def fir_DoLoopOp : region_Op<"do_loop",
   ];
 
   let extraClassDeclaration = [{
-    static constexpr llvm::StringRef getUnorderedAttrName() {
+    static constexpr llvm::StringRef getUnorderedAttrNameStr() {
       return "unordered";
     }
-    static constexpr llvm::StringRef getFinalValueAttrName() {
+    static constexpr llvm::StringRef getFinalValueAttrNameStr() {
       return "finalValue";
     }
 
@@ -2207,7 +2213,7 @@ def fir_DoLoopOp : region_Op<"do_loop",
     }
 
     /// Get the body of the loop
-    mlir::Block *getBody() { return &region().front(); }
+    mlir::Block *getBody() { return &getRegion().front(); }
 
     void setUnordered() {
       (*this)->setAttr(getUnorderedAttrName(),
@@ -2255,13 +2261,13 @@ def fir_IfOp : region_Op<"if", [NoRegionArguments]> {
 
   let extraClassDeclaration = [{
     mlir::OpBuilder getThenBodyBuilder() {
-      assert(!thenRegion().empty() && "Unexpected empty 'where' region.");
-      mlir::Block &body = thenRegion().front();
+      assert(!getThenRegion().empty() && "Unexpected empty 'where' region.");
+      mlir::Block &body = getThenRegion().front();
       return mlir::OpBuilder(&body, std::prev(body.end()));
     }
     mlir::OpBuilder getElseBodyBuilder() {
-      assert(!elseRegion().empty() && "Unexpected empty 'other' region.");
-      mlir::Block &body = elseRegion().front();
+      assert(!getElseRegion().empty() && "Unexpected empty 'other' region.");
+      mlir::Block &body = getElseRegion().front();
       return mlir::OpBuilder(&body, std::prev(body.end()));
     }
 
@@ -2321,10 +2327,10 @@ def fir_IterWhileOp : region_Op<"iterate_while",
   ];
 
   let extraClassDeclaration = [{
-    static constexpr llvm::StringRef getFinalValueAttrName() {
+    static constexpr llvm::StringRef getFinalValueAttrNameStr() {
       return "finalValue";
     }
-    mlir::Block *getBody() { return &region().front(); }
+    mlir::Block *getBody() { return &getRegion().front(); }
     mlir::Value getIterateVar() { return getBody()->getArgument(1); }
     mlir::Value getInductionVar() { return getBody()->getArgument(0); }
     mlir::OpBuilder getBodyBuilder() {
@@ -2407,7 +2413,7 @@ def fir_CallOp : fir_Op<"call", [CallOpInterface]> {
     }]>];
 
   let extraClassDeclaration = [{
-    static constexpr StringRef getCalleeAttrName() { return "callee"; }
+    static constexpr StringRef getCalleeAttrNameStr() { return "callee"; }
 
     mlir::FunctionType getFunctionType();
 
@@ -2468,7 +2474,7 @@ def fir_DispatchOp : fir_Op<"dispatch", []> {
     static constexpr llvm::StringRef getPassArgAttrName() {
       return "pass_arg_pos";
     }
-    static constexpr llvm::StringRef getMethodAttrName() { return "method"; }
+    static constexpr llvm::StringRef getMethodAttrNameStr() { return "method"; }
     unsigned passArgPos();
   }];
 }
@@ -2718,13 +2724,6 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
   let builders = [OpBuilder<(ins "mlir::TypeAttr":$inty)>];
 
   let verifier = "return ::verify(*this);";
-
-  let extraClassDeclaration = [{
-    mlir::Type getInType() {
-      // get the type that the type descriptor describes
-      return (*this)->getAttrOfType<mlir::TypeAttr>("in_type").getValue();
-    }
-  }];
 }
 
 def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
@@ -2816,31 +2815,23 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
   ];
 
   let extraClassDeclaration = [{
-    static constexpr llvm::StringRef getSymbolAttrName() { return "symref"; }
-    static constexpr llvm::StringRef getConstantAttrName() {
+    static constexpr llvm::StringRef getSymbolAttrNameStr() { return "symref"; }
+    static constexpr llvm::StringRef getConstantAttrNameStr() {
       return "constant";
     }
-    static constexpr llvm::StringRef getInitValAttrName() { return "initVal"; }
-    static constexpr llvm::StringRef getLinkageAttrName() { return "linkName"; }
-    static constexpr llvm::StringRef getTypeAttrName() { return "type"; }
-
-    /// The printable type of the global
-    mlir::Type getType() {
-      return (*this)->getAttrOfType<TypeAttr>(getTypeAttrName()).getValue();
-    }
+    static constexpr llvm::StringRef getInitValAttrNameStr() { return "initVal"; }
+    static constexpr llvm::StringRef getLinkageAttrNameStr() { return "linkName"; }
+    static constexpr llvm::StringRef getTypeAttrNameStr() { return "type"; }
 
     /// The semantic type of the global
     mlir::Type resultType();
 
     /// Return the initializer attribute if it exists, or a null attribute.
-    Attribute getValueOrNull() { return initVal().getValueOr(Attribute()); }
+    Attribute getValueOrNull() { return getInitVal().getValueOr(Attribute()); }
 
     /// Append the next initializer value to the `GlobalOp` to construct
     /// the variable's initial value.
     void appendInitialValue(mlir::Operation *op);
-
-    /// A GlobalOp has one region.
-    mlir::Region &getRegion() { return (*this)->getRegion(0); }
 
     /// A GlobalOp has one block.
     mlir::Block &getBlock() { return getRegion().front(); }
@@ -2936,10 +2927,6 @@ def fir_DispatchTableOp : fir_Op<"dispatch_table",
     /// Append a dispatch table entry to the table.
     void appendTableEntry(mlir::Operation *op);
 
-    mlir::Region &getRegion() {
-      return (*this)->getRegion(0);
-    }
-
     mlir::Block &getBlock() {
       return getRegion().front();
     }
@@ -2968,8 +2955,8 @@ def fir_DTEntryOp : fir_Op<"dt_entry", [HasParent<"DispatchTableOp">]> {
   let printer = "::print(p, *this);";
 
   let extraClassDeclaration = [{
-    static constexpr llvm::StringRef getMethodAttrName() { return "method"; }
-    static constexpr llvm::StringRef getProcAttrName() { return "proc"; }
+    static constexpr llvm::StringRef getMethodAttrNameStr() { return "method"; }
+    static constexpr llvm::StringRef getProcAttrNameStr() { return "proc"; }
   }];
 }
 
