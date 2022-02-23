@@ -47,12 +47,16 @@ fir::ExtendedValue createSomeExtendedExpression(mlir::Location loc,
                                                 SymMap &symMap,
                                                 StatementContext &stmtCtx);
 
+/// Create a global array symbol with the Dense attribute
 fir::GlobalOp createDenseGlobal(mlir::Location loc, mlir::Type symTy,
                                 llvm::StringRef globalName,
                                 mlir::StringAttr linkage, bool isConst,
                                 const SomeExpr &expr,
                                 Fortran::lower::AbstractConverter &converter);
 
+/// Create the IR for the expression \p expr in an initialization context.
+/// Expressions that appear in initializers may not allocate temporaries, do not
+/// have a stack, etc.
 fir::ExtendedValue createSomeInitializerExpression(mlir::Location loc,
                                                    AbstractConverter &converter,
                                                    const SomeExpr &expr,
@@ -65,6 +69,15 @@ fir::ExtendedValue createSomeExtendedAddress(mlir::Location loc,
                                              const SomeExpr &expr,
                                              SymMap &symMap,
                                              StatementContext &stmtCtx);
+
+/// Create an address in an initializer context. Must be a constant or a symbol
+/// to be resolved at link-time. Expressions that appear in initializers may not
+/// allocate temporaries, do not have a stack, etc.
+fir::ExtendedValue createInitializerAddress(mlir::Location loc,
+                                            AbstractConverter &converter,
+                                            const SomeExpr &expr,
+                                            SymMap &symMap,
+                                            StatementContext &stmtCtx);
 
 /// Create the address of the box.
 /// \p expr must be the designator of an allocatable/pointer entity.

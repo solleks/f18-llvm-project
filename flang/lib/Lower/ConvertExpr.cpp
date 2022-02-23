@@ -854,24 +854,34 @@ public:
       if (isBuiltinCPtr(sym)) {
         // Builtin c_ptr and c_funptr have special handling because initial
         // value are handled for them as an extension.
-        ExtValue addr = Fortran::lower::genExtAddrInInitializer(converter, loc,
-                                                                expr.value());
-        mlir::Value baseAddr = fir::getBase(addr);
-        auto undef = builder.create<fir::UndefOp>(loc, componentTy);
-        auto cPtrRecTy = componentTy.dyn_cast<fir::RecordType>();
-        assert(cPtrRecTy && "c_ptr and c_funptr must be derived types");
-        llvm::StringRef addrFieldName = Fortran::lower::builtin::cptrFieldName;
-        mlir::Type addrFieldTy = cPtrRecTy.getType(addrFieldName);
-        auto addrField = builder.create<fir::FieldIndexOp>(
-            loc, fieldTy, addrFieldName, componentTy,
-            /*typeParams=*/mlir::ValueRange{});
-        mlir::Value castAddr =
-            builder.createConvert(loc, addrFieldTy, baseAddr);
-        auto val = builder.create<fir::InsertValueOp>(
-            loc, componentTy, undef, castAddr,
-            builder.getArrayAttr(addrField.getAttributes()));
+        mlir::Value addr = fir::getBase(Fortran::lower::genExtAddrInInitializer(
+            converter, loc, expr.value()));
+        if (addr.getType() == componentTy) {
+          // Do nothing. The Ev::Expr was returned as a value that can be
+          // inserted directly to the component without an intermediary.
+        } else {
+          // The Ev::Expr returned is an initializer that is a pointer (null)
+          // that must be inserted into an intermediate cptr record value's
+          // address field, which ought to be an intptr_t on the target.
+          assert(fir::isa_ref_type(addr.getType()) &&
+                 "expect reference type for address field");
+          assert(fir::isa_derived(componentTy) &&
+                 "expect C_PTR, C_FUNPTR to be a record");
+          auto cPtrRecTy = componentTy.cast<fir::RecordType>();
+          llvm::StringRef addrFieldName =
+              Fortran::lower::builtin::cptrFieldName;
+          mlir::Type addrFieldTy = cPtrRecTy.getType(addrFieldName);
+          auto addrField = builder.create<fir::FieldIndexOp>(
+              loc, fieldTy, addrFieldName, componentTy,
+              /*typeParams=*/mlir::ValueRange{});
+          mlir::Value castAddr = builder.createConvert(loc, addrFieldTy, addr);
+          auto undef = builder.create<fir::UndefOp>(loc, componentTy);
+          addr = builder.create<fir::InsertValueOp>(
+              loc, componentTy, undef, castAddr,
+              builder.getArrayAttr(addrField.getAttributes()));
+        }
         res = builder.create<fir::InsertValueOp>(
-            loc, recTy, res, val, builder.getArrayAttr(field.getAttributes()));
+            loc, recTy, res, addr, builder.getArrayAttr(field.getAttributes()));
         continue;
       }
 
@@ -2988,6 +2998,10 @@ public:
   }
   template <typename A>
   ExtValue genref(const A &a) {
+    if (inInitializer) {
+      // Initialization expressions can never allocate memory.
+      return genval(a);
+    }
     mlir::Type storageType = converter.genType(toEvExpr(a));
     return placeScalarValueInMemory(builder, getLoc(), genval(a), storageType);
   }
@@ -6744,7 +6758,7 @@ fir::ExtendedValue Fortran::lower::createSomeExtendedExpression(
   LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "expr: ") << '\n');
   return ScalarExprLowering{loc, converter, symMap, stmtCtx}.genval(expr);
 }
-/// Create a global array symbol with the Dense attribute
+
 fir::GlobalOp Fortran::lower::createDenseGlobal(
     mlir::Location loc, mlir::Type symTy, llvm::StringRef globalName,
     mlir::StringAttr linkage, bool isConst,
@@ -6787,7 +6801,16 @@ fir::ExtendedValue Fortran::lower::createSomeExtendedAddress(
     const Fortran::lower::SomeExpr &expr, Fortran::lower::SymMap &symMap,
     Fortran::lower::StatementContext &stmtCtx) {
   LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "address: ") << '\n');
-  return ScalarExprLowering{loc, converter, symMap, stmtCtx}.gen(expr);
+  return ScalarExprLowering(loc, converter, symMap, stmtCtx).gen(expr);
+}
+
+fir::ExtendedValue Fortran::lower::createInitializerAddress(
+    mlir::Location loc, Fortran::lower::AbstractConverter &converter,
+    const Fortran::lower::SomeExpr &expr, Fortran::lower::SymMap &symMap,
+    Fortran::lower::StatementContext &stmtCtx) {
+  LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "address: ") << '\n');
+  InitializerData init;
+  return ScalarExprLowering(loc, converter, symMap, stmtCtx, &init).gen(expr);
 }
 
 void Fortran::lower::createSomeArrayAssignment(

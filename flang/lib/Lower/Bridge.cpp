@@ -290,27 +290,28 @@ public:
   fir::ExtendedValue genExprAddr(const Fortran::lower::SomeExpr &expr,
                                  Fortran::lower::StatementContext &context,
                                  mlir::Location *loc = nullptr) override final {
-    return createSomeExtendedAddress(loc ? *loc : toLocation(), *this, expr,
-                                     localSymbols, context);
+    return Fortran::lower::createSomeExtendedAddress(
+        loc ? *loc : toLocation(), *this, expr, localSymbols, context);
   }
   fir::ExtendedValue
   genExprValue(const Fortran::lower::SomeExpr &expr,
                Fortran::lower::StatementContext &context,
                mlir::Location *loc = nullptr) override final {
-    return createSomeExtendedExpression(loc ? *loc : toLocation(), *this, expr,
-                                        localSymbols, context);
+    return Fortran::lower::createSomeExtendedExpression(
+        loc ? *loc : toLocation(), *this, expr, localSymbols, context);
   }
   fir::MutableBoxValue
   genExprMutableBox(mlir::Location loc,
                     const Fortran::lower::SomeExpr &expr) override final {
-    return createMutableBox(loc, *this, expr, localSymbols);
+    return Fortran::lower::createMutableBox(loc, *this, expr, localSymbols);
   }
   fir::ExtendedValue genExprBox(const Fortran::lower::SomeExpr &expr,
                                 Fortran::lower::StatementContext &context,
                                 mlir::Location loc) override final {
     if (expr.Rank() > 0 && Fortran::evaluate::IsVariable(expr) &&
         !Fortran::evaluate::HasVectorSubscript(expr))
-      return createSomeArrayBox(*this, expr, localSymbols, context);
+      return Fortran::lower::createSomeArrayBox(*this, expr, localSymbols,
+                                                context);
     return fir::BoxValue(
         builder->createBox(loc, genExprAddr(expr, context, &loc)));
   }
@@ -412,7 +413,8 @@ public:
     mlir::Type symType = genType(sym);
     if (auto seqTy = symType.dyn_cast<fir::SequenceType>()) {
       Fortran::lower::StatementContext stmtCtx;
-      createSomeArrayAssignment(*this, exv, hexv, localSymbols, stmtCtx);
+      Fortran::lower::createSomeArrayAssignment(*this, exv, hexv, localSymbols,
+                                                stmtCtx);
       stmtCtx.finalize();
     } else if (hexv.getBoxOf<fir::CharBoxValue>()) {
       fir::factory::CharacterExprHelper{*builder, loc}.createAssign(exv, hexv);
@@ -1903,8 +1905,8 @@ private:
   fir::ExtendedValue
   genInitializerExprValue(const Fortran::lower::SomeExpr &expr,
                           Fortran::lower::StatementContext &stmtCtx) {
-    return createSomeInitializerExpression(toLocation(), *this, expr,
-                                           localSymbols, stmtCtx);
+    return Fortran::lower::createSomeInitializerExpression(
+        toLocation(), *this, expr, localSymbols, stmtCtx);
   }
 
   /// Return true if the current context is a conditionalized and implied
@@ -2666,7 +2668,7 @@ private:
         mlir::UnknownLoc::get(context), getModuleOp(),
         fir::NameUniquer::doGenerated("Sham"),
         mlir::FunctionType::get(context, llvm::None, llvm::None));
-
+    func.addEntryBlock();
     builder = new fir::FirOpBuilder(func, bridge.getKindMap());
     Fortran::lower::AggregateStoreMap fakeMap;
     for (const auto &[_, sym] : bdunit.symTab) {
@@ -2711,6 +2713,7 @@ private:
         mlir::UnknownLoc::get(context), getModuleOp(),
         fir::NameUniquer::doGenerated("ModuleSham"),
         mlir::FunctionType::get(context, llvm::None, llvm::None));
+    func.addEntryBlock();
     builder = new fir::FirOpBuilder(func, bridge.getKindMap());
     for (const Fortran::lower::pft::Variable &var :
          mod.getOrderedSymbolTable()) {
