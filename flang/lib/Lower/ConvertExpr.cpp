@@ -193,19 +193,6 @@ translateFloatRelational(Fortran::common::RelationalOperator rop) {
   llvm_unreachable("unhandled REAL relational operator");
 }
 
-/// Lower `opt` (from front-end shape analysis) to MLIR. If `opt` is `nullopt`
-/// then issue an error.
-static mlir::Value
-convertOptExtentExpr(Fortran::lower::AbstractConverter &converter,
-                     Fortran::lower::StatementContext &stmtCtx,
-                     const Fortran::evaluate::MaybeExtentExpr &opt) {
-  mlir::Location loc = converter.getCurrentLocation();
-  if (!opt.has_value())
-    fir::emitFatalError(loc, "shape analysis failed to return an expression");
-  Fortran::lower::SomeExpr e = toEvExpr(*opt);
-  return fir::getBase(converter.genExprValue(&e, stmtCtx, loc));
-}
-
 static mlir::Value genActualIsPresentTest(fir::FirOpBuilder &builder,
                                           mlir::Location loc,
                                           fir::ExtendedValue actual) {
@@ -867,24 +854,34 @@ public:
       if (isBuiltinCPtr(sym)) {
         // Builtin c_ptr and c_funptr have special handling because initial
         // value are handled for them as an extension.
-        ExtValue addr = Fortran::lower::genExtAddrInInitializer(converter, loc,
-                                                                expr.value());
-        mlir::Value baseAddr = fir::getBase(addr);
-        auto undef = builder.create<fir::UndefOp>(loc, componentTy);
-        auto cPtrRecTy = componentTy.dyn_cast<fir::RecordType>();
-        assert(cPtrRecTy && "c_ptr and c_funptr must be derived types");
-        llvm::StringRef addrFieldName = Fortran::lower::builtin::cptrFieldName;
-        mlir::Type addrFieldTy = cPtrRecTy.getType(addrFieldName);
-        auto addrField = builder.create<fir::FieldIndexOp>(
-            loc, fieldTy, addrFieldName, componentTy,
-            /*typeParams=*/mlir::ValueRange{});
-        mlir::Value castAddr =
-            builder.createConvert(loc, addrFieldTy, baseAddr);
-        auto val = builder.create<fir::InsertValueOp>(
-            loc, componentTy, undef, castAddr,
-            builder.getArrayAttr(addrField.getAttributes()));
+        mlir::Value addr = fir::getBase(Fortran::lower::genExtAddrInInitializer(
+            converter, loc, expr.value()));
+        if (addr.getType() == componentTy) {
+          // Do nothing. The Ev::Expr was returned as a value that can be
+          // inserted directly to the component without an intermediary.
+        } else {
+          // The Ev::Expr returned is an initializer that is a pointer (null)
+          // that must be inserted into an intermediate cptr record value's
+          // address field, which ought to be an intptr_t on the target.
+          assert(fir::isa_ref_type(addr.getType()) &&
+                 "expect reference type for address field");
+          assert(fir::isa_derived(componentTy) &&
+                 "expect C_PTR, C_FUNPTR to be a record");
+          auto cPtrRecTy = componentTy.cast<fir::RecordType>();
+          llvm::StringRef addrFieldName =
+              Fortran::lower::builtin::cptrFieldName;
+          mlir::Type addrFieldTy = cPtrRecTy.getType(addrFieldName);
+          auto addrField = builder.create<fir::FieldIndexOp>(
+              loc, fieldTy, addrFieldName, componentTy,
+              /*typeParams=*/mlir::ValueRange{});
+          mlir::Value castAddr = builder.createConvert(loc, addrFieldTy, addr);
+          auto undef = builder.create<fir::UndefOp>(loc, componentTy);
+          addr = builder.create<fir::InsertValueOp>(
+              loc, componentTy, undef, castAddr,
+              builder.getArrayAttr(addrField.getAttributes()));
+        }
         res = builder.create<fir::InsertValueOp>(
-            loc, recTy, res, val, builder.getArrayAttr(field.getAttributes()));
+            loc, recTy, res, addr, builder.getArrayAttr(field.getAttributes()));
         continue;
       }
 
@@ -3001,6 +2998,10 @@ public:
   }
   template <typename A>
   ExtValue genref(const A &a) {
+    if (inInitializer) {
+      // Initialization expressions can never allocate memory.
+      return genval(a);
+    }
     mlir::Type storageType = converter.genType(toEvExpr(a));
     return placeScalarValueInMemory(builder, getLoc(), genval(a), storageType);
   }
@@ -3324,12 +3325,12 @@ public:
     fir::MutableBoxValue mutableBox =
         createMutableBox(loc, converter, lhs, symMap);
     mlir::Type resultTy = converter.genType(rhs);
+    if (rhs.Rank() > 0)
+      determineShapeOfDest(rhs);
     auto rhsCC = [&]() {
       PushSemantics(ConstituentSemantics::RefTransparent);
       return genarr(rhs);
     }();
-    if (!arrayOperands.empty())
-      destShape = getShape(getInducingShapeArrayOperand());
 
     llvm::SmallVector<mlir::Value> lengthParams;
     // Currently no safe way to gather length from rhs (at least for
@@ -3685,9 +3686,13 @@ private:
       return;
     if (explicitSpaceIsActive() && determineShapeWithSlice(lhs))
       return;
-    if (std::optional<Fortran::evaluate::Shape> shape =
-            Fortran::evaluate::GetShape(converter.getFoldingContext(), lhs))
-      convertFEShape(shape.value(), destShape);
+    mlir::Type idxTy = builder.getIndexType();
+    mlir::Location loc = getLoc();
+    if (std::optional<Fortran::evaluate::ConstantSubscripts> constantShape =
+            Fortran::evaluate::GetConstantExtents(converter.getFoldingContext(),
+                                                  lhs))
+      for (Fortran::common::ConstantSubscript extent : *constantShape)
+        destShape.push_back(builder.createIntegerConstant(loc, idxTy, extent));
   }
 
   bool genShapeFromDataRef(const Fortran::semantics::Symbol &x) {
@@ -3761,26 +3766,6 @@ private:
     std::optional<Fortran::evaluate::DataRef> dref =
         Fortran::evaluate::ExtractDataRef(lhs);
     return dref.has_value() ? genShapeFromDataRef(*dref) : false;
-  }
-
-  /// Returns true iff the Ev::Shape is constant.
-  static bool evalShapeIsConstant(const Fortran::evaluate::Shape &shape) {
-    for (const auto &s : shape)
-      if (!s || !Fortran::evaluate::IsConstantExpr(*s))
-        return false;
-    return true;
-  }
-
-  /// Convert an Ev::Shape to IR values.
-  void convertFEShape(const Fortran::evaluate::Shape &shape,
-                      llvm::SmallVectorImpl<mlir::Value> &result) {
-    if (evalShapeIsConstant(shape)) {
-      mlir::IndexType idxTy = builder.getIndexType();
-      mlir::Location loc = getLoc();
-      for (const auto &s : shape)
-        result.emplace_back(builder.createConvert(
-            loc, idxTy, convertOptExtentExpr(converter, stmtCtx, s)));
-    }
   }
 
   /// CHARACTER and derived type elements are treated as memory references. The
@@ -5338,27 +5323,6 @@ private:
     }
     return result;
   }
-  llvm::SmallVector<mlir::Value>
-  getShape(const Fortran::semantics::SymbolRef &x) {
-    if (x.get().Rank() == 0)
-      return {};
-    return getFrontEndShape(x);
-  }
-  template <typename A>
-  llvm::SmallVector<mlir::Value> getShape(const A &x) {
-    if (x.Rank() == 0)
-      return {};
-    return getFrontEndShape(x);
-  }
-  template <typename A>
-  llvm::SmallVector<mlir::Value> getFrontEndShape(const A &x) {
-    if (auto optShape = Fortran::evaluate::GetShape(x)) {
-      llvm::SmallVector<mlir::Value> result;
-      convertFEShape(*optShape, result);
-      return result;
-    }
-    return {};
-  }
 
   CC genarr(const Fortran::semantics::SymbolRef &sym,
             ComponentPath &components) {
@@ -5381,17 +5345,6 @@ private:
     mlir::Type arrTy = fir::dyn_cast_ptrOrBoxEleTy(memref.getType());
     assert(arrTy.isa<fir::SequenceType>() && "memory ref must be an array");
     mlir::Value shape = builder.createShape(loc, extMemref);
-    if (destShape.empty()) {
-      if (shape) {
-        std::vector<mlir::Value, std::allocator<mlir::Value>> extents =
-            fir::factory::getExtents(shape);
-        destShape.assign(extents.begin(), extents.end());
-      } else {
-        llvm::SmallVector<mlir::Value> extents =
-            fir::factory::getExtents(builder, loc, extMemref);
-        destShape.assign(extents.begin(), extents.end());
-      }
-    }
     mlir::Value slice;
     if (components.isSlice()) {
       if (isBoxValue() && components.substring) {
@@ -5457,6 +5410,8 @@ private:
       }
     }
     arrayOperands.push_back(ArrayOperand{memref, shape, slice});
+    if (destShape.empty())
+      destShape = getShape(arrayOperands.back());
     if (isBoxValue()) {
       // Semantics are a reference to a boxed array.
       // This case just requires that an embox operation be created to box the
@@ -6803,7 +6758,7 @@ fir::ExtendedValue Fortran::lower::createSomeExtendedExpression(
   LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "expr: ") << '\n');
   return ScalarExprLowering{loc, converter, symMap, stmtCtx}.genval(expr);
 }
-/// Create a global array symbol with the Dense attribute
+
 fir::GlobalOp Fortran::lower::createDenseGlobal(
     mlir::Location loc, mlir::Type symTy, llvm::StringRef globalName,
     mlir::StringAttr linkage, bool isConst,
@@ -6846,7 +6801,16 @@ fir::ExtendedValue Fortran::lower::createSomeExtendedAddress(
     const Fortran::lower::SomeExpr &expr, Fortran::lower::SymMap &symMap,
     Fortran::lower::StatementContext &stmtCtx) {
   LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "address: ") << '\n');
-  return ScalarExprLowering{loc, converter, symMap, stmtCtx}.gen(expr);
+  return ScalarExprLowering(loc, converter, symMap, stmtCtx).gen(expr);
+}
+
+fir::ExtendedValue Fortran::lower::createInitializerAddress(
+    mlir::Location loc, Fortran::lower::AbstractConverter &converter,
+    const Fortran::lower::SomeExpr &expr, Fortran::lower::SymMap &symMap,
+    Fortran::lower::StatementContext &stmtCtx) {
+  LLVM_DEBUG(expr.AsFortran(llvm::dbgs() << "address: ") << '\n');
+  InitializerData init;
+  return ScalarExprLowering(loc, converter, symMap, stmtCtx, &init).gen(expr);
 }
 
 void Fortran::lower::createSomeArrayAssignment(

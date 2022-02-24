@@ -180,8 +180,8 @@ fir::ExtendedValue Fortran::lower::genExtAddrInInitializer(
     Fortran::lower::instantiateVariable(converter, var, globalOpSymMap,
                                         storeMap);
   }
-  return Fortran::lower::createSomeExtendedAddress(loc, converter, addr,
-                                                   globalOpSymMap, stmtCtx);
+  return Fortran::lower::createInitializerAddress(loc, converter, addr,
+                                                  globalOpSymMap, stmtCtx);
 }
 
 /// create initial-data-target fir.box in a global initializer region.
@@ -213,7 +213,7 @@ mlir::Value Fortran::lower::genInitialDataTarget(
     box = fir::getBase(Fortran::lower::createSomeArrayBox(
         converter, initialTarget, globalOpSymMap, stmtCtx));
   } else {
-    fir::ExtendedValue addr = Fortran::lower::createSomeExtendedAddress(
+    fir::ExtendedValue addr = Fortran::lower::createInitializerAddress(
         loc, converter, initialTarget, globalOpSymMap, stmtCtx);
     box = builder.createBox(loc, addr);
   }
