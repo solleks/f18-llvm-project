@@ -860,10 +860,11 @@ public:
           // Do nothing. The Ev::Expr was returned as a value that can be
           // inserted directly to the component without an intermediary.
         } else {
-          // The Ev::Expr returned is an initializer that is a pointer (null)
-          // that must be inserted into an intermediate cptr record value's
-          // address field, which ought to be an intptr_t on the target.
-          assert(fir::isa_ref_type(addr.getType()) &&
+          // The Ev::Expr returned is an initializer that is a pointer (e.g.,
+          // null) that must be inserted into an intermediate cptr record
+          // value's address field, which ought to be an intptr_t on the target.
+          assert((fir::isa_ref_type(addr.getType()) ||
+                  addr.getType().isa<mlir::FunctionType>()) &&
                  "expect reference type for address field");
           assert(fir::isa_derived(componentTy) &&
                  "expect C_PTR, C_FUNPTR to be a record");
