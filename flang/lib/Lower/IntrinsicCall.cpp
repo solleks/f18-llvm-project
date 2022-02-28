@@ -1208,7 +1208,7 @@ private:
     dataSize
   };
 
-  std::array<int, dataSize> conversions;
+  std::array<int, dataSize> conversions = {};
   bool infinite = false; // When forbidden conversion or wrong argument number
 };
 
