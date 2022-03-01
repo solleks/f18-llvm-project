@@ -1368,7 +1368,7 @@ fir::ExtendedValue toExtendedValue(mlir::Value val, fir::FirOpBuilder &builder,
     if (extents.size() + 1 < arrayType.getShape().size())
       mlir::emitError(loc, "cannot retrieve array extents from type");
   } else if (type.isa<fir::BoxType>() || type.isa<fir::RecordType>()) {
-    fir::emitFatalError(loc, "descriptor or derived type not yet handled");
+    fir::emitFatalError(loc, "not yet implemented: descriptor or derived type");
   }
 
   if (!extents.empty())
