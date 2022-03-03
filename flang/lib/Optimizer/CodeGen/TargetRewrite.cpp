@@ -83,9 +83,8 @@ public:
     if (!forcedTargetTriple.empty())
       setTargetTriple(mod, forcedTargetTriple);
 
-    auto specifics = CodeGenSpecifics::get(getOperation().getContext(),
-                                           getTargetTriple(getOperation()),
-                                           getKindMapping(getOperation()));
+    auto specifics = CodeGenSpecifics::get(
+        mod.getContext(), getTargetTriple(mod), getKindMapping(mod));
     setMembers(specifics.get(), &rewriter);
 
     // Perform type conversion on signatures and call sites.
